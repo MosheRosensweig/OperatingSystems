@@ -1,3 +1,4 @@
+//Updated 10:30
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -9,6 +10,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 #define VERSION 23
 #define BUFSIZE 8096
 #define ERROR      42
@@ -16,6 +18,18 @@
 #define FORBIDDEN 403
 #define NOTFOUND  404
 
+//-------------------------------------//
+//			Moshe Written Code	  	   //
+//-------------------------------------//
+struct arg_struct {
+    int arg1;
+    int arg2;
+    int arg3;
+}; 
+void * runWeb(void * input);
+pthread_t threads[10];
+int threadNum = 0;
+//-------------------------------------//
 struct {
 	char *ext;
 	char *filetype;
@@ -133,9 +147,22 @@ void web(int fd, int hit)
 	exit(1);
 }
 
+void * runWeb(void * input){
+	
+	struct arg_struct *args = input;
+	int fd 		 = args->arg1;
+	int hit		 = args->arg2;
+	int listenfd = args->arg3;
+	//stuff from the old if else
+	(void)close(listenfd);
+	web(fd, hit);
+	return NULL;
+}
+
 int main(int argc, char **argv)
 {
-	int i, port, pid, listenfd, socketfd, hit;
+	//printf("Moshe's code\n\n\n\n");
+	int i, port, /*pid,*/ listenfd, socketfd, hit;
 	socklen_t length;
 	static struct sockaddr_in cli_addr; /* static = initialised to zeros */
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
@@ -193,13 +220,26 @@ int main(int argc, char **argv)
 		length = sizeof(cli_addr);
 		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
 			logger(ERROR,"system call","accept",0);
-		if((pid = fork()) < 0) {
+		
+//----> Look Here TO Make Changes	
+		printf("\n\n\t\tMoshe's code, see line 231 for the sleep... right now this is needed to print results \n\n");
+		struct arg_struct args;
+   		args.arg1 = socketfd;
+   		args.arg2 = hit; 
+   		args.arg3 = listenfd;
+		pthread_create(&threads[threadNum++], NULL, runWeb, (void *)&args);
+		
+		//sleep(1);
+		pthread_join(threads[threadNum-1], NULL);
+		if(threads[threadNum-1] < 0) {
 			logger(ERROR,"system call","fork",0);
 		}
 		else {
-			if(pid == 0) { 	/* child */
-				(void)close(listenfd);
-				web(socketfd,hit); /* never returns */
+			if(threads[threadNum-1] == 0) { 	/* child */
+				//(void)close(listenfd);
+				//web(socketfd,hit); /* never returns */
+				int printer = threads[threadNum-1];
+				printf("Child number%d\n", printer);
 			} else { 	/* parent */
 				(void)close(socketfd);
 			}
