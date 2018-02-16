@@ -14,7 +14,8 @@
 
 
 struct arg_struct {
-    int clientfd;
+    char* host;
+    char* portnum;
     char* filename;
     int whichThread;
 }; 
@@ -72,40 +73,38 @@ void GET(int clientfd, char *path) {
 }
 
 void * getThread(void * input){
-	
-	struct arg_struct *args = input;
-	int clientfd = args->clientfd;
-	char * filename = args->filename;
-	
-	printf("\n\nThread #%d state: %d, %s\n\n", args->whichThread, clientfd, filename);
-    
-    GET(clientfd, filename);
+  struct arg_struct *args = input;
+  int clientfd;
+  // Establish connection with <hostname>:<port>
+  clientfd = establishConnection(getHostInfo(args->host, args->portnum));
+  if (clientfd == -1) {
+    fprintf(stderr,
+            "[main:73] Failed to connect to: %s:%s%s \n",
+            args->host, args->portnum, args->filename);
+    return NULL;
+  
+  }
+		
+	printf("\n\nThread #%d state: %d, %s\n\n", args->whichThread, clientfd, args->filename);
+
+    GET(clientfd, args->filename);
     
     char buf[BUF_SIZE];
     while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
     fputs(buf, stdout);
     memset(buf, 0, BUF_SIZE);
     }
+    close(clientfd);
 	return NULL;
 }
 
 int main(int argc, char **argv) {
-  int clientfd;
 
   if (argc < 6) {
     fprintf(stderr, "USAGE: client [host] [portnum] [threads] [schedalg] [filename1] [filename2]\n");
     return 1;
   }
   
-
-  // Establish connection with <hostname>:<port>
-  clientfd = establishConnection(getHostInfo(argv[1], argv[2]));
-  if (clientfd == -1) {
-    fprintf(stderr,
-            "[main:73] Failed to connect to: %s:%s%s \n",
-            argv[1], argv[2], argv[3]);
-    return 3;
-  }
   
   int numberOfThreads = atoi(argv[3]);
 	if(numberOfThreads < 1){ 
@@ -118,13 +117,13 @@ int main(int argc, char **argv) {
   for (int i = 5; i < argc; i++) {
     struct arg_struct args;
     args.whichThread = i - 5;
-    args.clientfd = clientfd;
+    args.host = argv[1];
+    args.portnum = argv[2];
     args.filename = argv[i];
     pthread_create(&threads[++threadNum], NULL, getThread, (void *)&args);
     pthread_join(threads[threadNum], NULL); //TODO: Waiting for multiple threads.
+    
   }
-  
-  close(clientfd);
   
   return 0;
 }
