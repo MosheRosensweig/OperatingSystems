@@ -1,4 +1,4 @@
-//Updated 10:30
+//Updated 7:19
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -28,7 +28,7 @@ struct arg_struct {
 }; 
 void * runWeb(void * input);
 pthread_t threads[10];
-int threadNum = 0;
+int threadNum = -1;
 //-------------------------------------//
 struct {
 	char *ext;
@@ -227,18 +227,18 @@ int main(int argc, char **argv)
    		args.arg1 = socketfd;
    		args.arg2 = hit; 
    		args.arg3 = listenfd;
-		pthread_create(&threads[threadNum++], NULL, runWeb, (void *)&args);
+		pthread_create(&threads[++threadNum], NULL, runWeb, (void *)&args);
 		
 		//sleep(1);
-		pthread_join(threads[threadNum-1], NULL);
-		if(threads[threadNum-1] < 0) {
+		pthread_join(threads[threadNum], NULL);
+		if(threads[threadNum] < 0) {
 			logger(ERROR,"system call","fork",0);
 		}
 		else {
-			if(threads[threadNum-1] == 0) { 	/* child */
+			if(threads[threadNum] == 0) { 	/* child */
 				//(void)close(listenfd);
 				//web(socketfd,hit); /* never returns */
-				int printer = threads[threadNum-1];
+				int printer = threads[threadNum];
 				printf("Child number%d\n", printer);
 			} else { 	/* parent */
 				(void)close(socketfd);
