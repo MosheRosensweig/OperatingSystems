@@ -41,3 +41,7 @@ Notes for OS:
 	For HPIC/HPHC, I recommend using two separate buffers, one to store image requests and one to store html requests. For example, for HPIC - we can do something like while(!HPIC_BUFFER.isEmpty) [{code}  
 	This is versatile because we need to use both buffer if we do HPIC or HPHC, just which gets primacy changes
 
+
+To do:
+1] When checking the other 3 parameters, make a call to logger as well as calling exit(1)
+2] For now, I will implement ANY and FIFO first, and later implement HPIC and HPHC
