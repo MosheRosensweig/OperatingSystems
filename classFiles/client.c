@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
   char buf[BUF_SIZE];
 
   if (argc != 4) {
-    fprintf(stderr, "Micahhhhhhh: ./httpclient <hostname> <port> <request path>\n");
+    fprintf(stderr, "USAGE: ./httpclient <hostname> <port> <request path>\n");
     return 1;
   }
 
