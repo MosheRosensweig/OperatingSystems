@@ -5,4 +5,39 @@ Date: 2/14/18
 Date: 2/15/18
 - Worked on processing the additional 3 command-line commands.
 
+Date: 2/16/18
+Project plan - Here's how I plan to code the server basically:
+
+1] Setup the server
+	(a) process command-line input } validate their information (did)
+	(b) listen for messages (see below)
+
+2] Handle incoming messages // i.e. the parent thread
+	(a) listen for messages 
+	(b) add messages to the buffer
+		(i) See notes (below) about 3 different buffers. When the server gets a new request, check 
+			if(spaceInBuffer > (ANY_BUFFER.SIZE + HPIC_BIFFER.SIZE + HPHC_BUFFER.SIZE)
+			//I'm not sure yet how I plant to implement this exactly but this is the basic idea.
+		(ii) if there is space int he buffer - determine which buffer to put it in and put it there
+	(c) Done, so sleep() //whatever that means, maybe yielding
+	
+/*
+	Remember, the parent and child threads all need to access to the buffers, so accessing that 
+	means entering the "critical region"
+*/
+
+3] Child Process
+	(a) wake up - enter critical region, based on scheduling policies. Pull a request out of the buffer
+	(b) exit the critical region and process the request
+	(c) detach (I think) and try to get more work... i.e. cycle
+		
+
+Notes for OS:
+1] Scheduling
+
+	Here’s how I would tackle this:
+	[a] have 3 buffers (1) generic_BUFFER (2) HPIC_BUFFER (3) HPHC_BUFFER; and a boolean to represent each one. If we’re executing “ANY” or “FIFO” then generic_BUFFER_bool = true; else if we’re executing HPIC then HPIC_BUFFER_bool = true; else if we’re executing HPHC_BUFFER, then HPHC_BUFFER_bool = true
+
+	For HPIC/HPHC, I recommend using two separate buffers, one to store image requests and one to store html requests. For example, for HPIC - we can do something like while(!HPIC_BUFFER.isEmpty) [{code}  
+	This is versatile because we need to use both buffer if we do HPIC or HPHC, just which gets primacy changes
 
