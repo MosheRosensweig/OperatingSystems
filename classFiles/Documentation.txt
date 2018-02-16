@@ -1,0 +1,8 @@
+Moshe Rosensweig
+Date: 2/14/18
+- Changed the child process into a child thread
+
+Date: 2/15/18
+- Worked on processing the additional 3 command-line commands.
+
+
