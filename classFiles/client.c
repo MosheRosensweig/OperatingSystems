@@ -4,12 +4,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 
 /* Network */
 #include <netdb.h>
 #include <sys/socket.h>
 
 #define BUF_SIZE 100
+
+
+struct arg_struct {
+    int clientfd;
+    char* filename;
+    int whichThread;
+}; 
+void *getThread(void * input);
 
 // Get host information (used to establishConnection)
 struct addrinfo *getHostInfo(char* host, char* port) {
@@ -54,6 +63,7 @@ int establishConnection(struct addrinfo *info) {
   return -1;
 }
 
+
 // Send GET request
 void GET(int clientfd, char *path) {
   char req[1000] = {0};
@@ -61,14 +71,32 @@ void GET(int clientfd, char *path) {
   send(clientfd, req, strlen(req), 0);
 }
 
+void * getThread(void * input){
+	
+	struct arg_struct *args = input;
+	int clientfd = args->clientfd;
+	char * filename = args->filename;
+	
+	printf("\n\nThread #%d state: %d, %s\n\n", args->whichThread, clientfd, filename);
+    
+    GET(clientfd, filename);
+    
+    char buf[BUF_SIZE];
+    while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
+    fputs(buf, stdout);
+    memset(buf, 0, BUF_SIZE);
+    }
+	return NULL;
+}
+
 int main(int argc, char **argv) {
   int clientfd;
-  char buf[BUF_SIZE];
 
-  if (argc != 4) {
-    fprintf(stderr, "USAGE: ./httpclient <hostname> <port> <request path>\n");
+  if (argc < 6) {
+    fprintf(stderr, "USAGE: client [host] [portnum] [threads] [schedalg] [filename1] [filename2]\n");
     return 1;
   }
+  
 
   // Establish connection with <hostname>:<port>
   clientfd = establishConnection(getHostInfo(argv[1], argv[2]));
@@ -78,14 +106,25 @@ int main(int argc, char **argv) {
             argv[1], argv[2], argv[3]);
     return 3;
   }
+  
+  int numberOfThreads = atoi(argv[3]);
+	if(numberOfThreads < 1){ 
+		printf("Invalid number of threads");
+		exit(1);
+	}
+	pthread_t threads[numberOfThreads];
+	int threadNum = -1; //intentionally set to -1
 
-  // Send GET request > stdout
-  GET(clientfd, argv[3]);
-  while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
-    fputs(buf, stdout);
-    memset(buf, 0, BUF_SIZE);
+  for (int i = 5; i < argc; i++) {
+    struct arg_struct args;
+    args.whichThread = i - 5;
+    args.clientfd = clientfd;
+    args.filename = argv[i];
+    pthread_create(&threads[++threadNum], NULL, getThread, (void *)&args);
+    pthread_join(threads[threadNum], NULL); //TODO: Waiting for multiple threads.
   }
-
+  
   close(clientfd);
+  
   return 0;
 }
