@@ -1,4 +1,4 @@
-//Updated 7:30
+//Updated 7:34
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -29,6 +29,10 @@ struct arg_struct {
 void * runWeb(void * input);
 pthread_t threads[10];
 int threadNum = -1;
+#define ANY 0
+#define FIFO 1
+#define HPIC 2
+#define HPHC 3
 //-------------------------------------//
 struct {
 	char *ext;
@@ -161,12 +165,13 @@ void * runWeb(void * input){
 
 int main(int argc, char **argv)
 {
-	//printf("Moshe's code\n\n\n\n");
 	int i, port, /*pid,*/ listenfd, socketfd, hit;
 	socklen_t length;
 	static struct sockaddr_in cli_addr; /* static = initialised to zeros */
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
-
+	
+	
+//CURRENT CHANGE--->
 	if( argc < 3  || argc > 3 || !strcmp(argv[1], "-?") ) {
 		(void)printf("hint: nweb Port-Number Top-Directory\t\tversion %d\n\n"
 	"\tnweb is a small and very safe mini web server\n"
@@ -183,6 +188,9 @@ int main(int argc, char **argv)
 	"\tNo warranty given or implied\n\tNigel Griffiths nag@uk.ibm.com\n"  );
 		exit(0);
 	}
+	// Moshe's Edit
+	printf("The printout is: %s, %s, %s", argv[0],argv[1],argv[2]);
+	sleep(1);
 	if( !strncmp(argv[2],"/"   ,2 ) || !strncmp(argv[2],"/etc", 5 ) ||
 	    !strncmp(argv[2],"/bin",5 ) || !strncmp(argv[2],"/lib", 5 ) ||
 	    !strncmp(argv[2],"/tmp",5 ) || !strncmp(argv[2],"/usr", 5 ) ||
@@ -209,6 +217,40 @@ int main(int argc, char **argv)
 	port = atoi(argv[1]);
 	if(port < 0 || port >60000)
 		logger(ERROR,"Invalid port number (try 1->60000)",argv[1],0);
+	//------------------------------------------//
+	//	 Start: Moshe's Edits to input scanning	//
+	//------------------------------------------//
+	//				argv[0]	  argv[1]	argv[2]	  argv[3]	argv[4]		argv[5]
+	// Old Version: ./server [portnum] [folder] &
+	// New Version: ./server [portnum] [folder] [threads] [buffers] [schedalg] &
+	//THREAD SETUP
+	int numberOfThreads = atoi(argv[3]);
+	if(numberOfThreads < 1){ 
+		printf("Invalid number of threads");
+		exit(1);
+	}
+	pthread_t threads[numberOfThreads];
+	int threadNum = -1; //intentionally set to -1
+	//BUFFER SETUP
+	int buffers = atoi(argv[4]);
+	if(buffers < 1){ 
+		printf("Invalid number of buffers");
+		exit(1);
+	}
+	//SCHEDULE  SETUP
+	int schedule; 
+	if(!strcmp(argv[5], "ANY")) schedule = ANY;
+	else if(!strcmp(argv[5], "FIFO")) schedule = FIFO;
+	else if(!strcmp(argv[5], "HPIC")) schedule = HPIC;
+	else if(!strcmp(argv[5], "HPHC")) schedule = HPHC;
+	else{
+		printf("Invalid scheduling parameter. Options are: \"ANY\", \"FIFO\", \"HPIC\", \"HPHC\".");
+		exit(1);
+	}
+	
+	//------------------------------------------//
+	//	 End: Moshe's Edits to input scanning	//
+	//------------------------------------------//
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
