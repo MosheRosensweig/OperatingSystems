@@ -93,7 +93,7 @@ void * getThread(void * input){
   
   }
 		
-	printf("\n\nThread #%d state: %d, %s\n\n", args->whichThread, clientfd, args->filename);
+	//printf("\n\nThread #%d state: %d, %s\n\n", args->whichThread, clientfd, args->filename);
     
     if (FIFO) sem_wait(&mutex);
     //TODO Possible bad: FIFO doesn't ensure that the FIRST thread is the FIRST thread.
@@ -139,7 +139,6 @@ int main(int argc, char **argv) {
     
     while(1) {
       struct arg_struct args;
-      //args.whichThread = i - 5;
       args.host = argv[1];
       args.portnum = argv[2];
       args.filename = argv[fileNum - 1];
