@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 /* Network */
 #include <netdb.h>
@@ -12,14 +13,20 @@
 
 #define BUF_SIZE 100
 
-
 struct arg_struct {
     char* host;
     char* portnum;
     char* filename;
     int whichThread;
 }; 
+
+pthread_barrier_t myBarrier;
+
+int FIFO = 0;
+
 void *getThread(void * input);
+
+sem_t mutex;
 
 // Get host information (used to establishConnection)
 struct addrinfo *getHostInfo(char* host, char* port) {
@@ -75,6 +82,7 @@ void GET(int clientfd, char *path) {
 void * getThread(void * input){
   struct arg_struct *args = input;
   int clientfd;
+  
   // Establish connection with <hostname>:<port>
   clientfd = establishConnection(getHostInfo(args->host, args->portnum));
   if (clientfd == -1) {
@@ -86,14 +94,22 @@ void * getThread(void * input){
   }
 		
 	printf("\n\nThread #%d state: %d, %s\n\n", args->whichThread, clientfd, args->filename);
-
+    
+    if (FIFO) sem_wait(&mutex);
+    //TODO Possible bad: FIFO doesn't ensure that the FIRST thread is the FIRST thread.
+    //I'm assuming that they each reach this position in order.
+    
     GET(clientfd, args->filename);
+
+    if (FIFO) sem_post(&mutex);
+    pthread_barrier_wait(&myBarrier);
     
     char buf[BUF_SIZE];
     while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
     fputs(buf, stdout);
     memset(buf, 0, BUF_SIZE);
     }
+    
     close(clientfd);
 	return NULL;
 }
@@ -112,18 +128,36 @@ int main(int argc, char **argv) {
 		exit(1);
 	}
 	pthread_t threads[numberOfThreads];
-	int threadNum = -1; //intentionally set to -1
-
-  for (int i = 5; i < argc; i++) {
-    struct arg_struct args;
-    args.whichThread = i - 5;
-    args.host = argv[1];
-    args.portnum = argv[2];
-    args.filename = argv[i];
-    pthread_create(&threads[++threadNum], NULL, getThread, (void *)&args);
-    pthread_join(threads[threadNum], NULL); //TODO: Waiting for multiple threads.
+	
+	if(!strcmp(argv[4], "FIFO")) FIFO = 1;
+	
+	pthread_barrier_init(&myBarrier, NULL, numberOfThreads + 1);
+	
+    int fileNum = 6;
     
-  }
-  
+    if (FIFO) sem_init(&mutex, 0, 1);
+    
+    while(1) {
+      struct arg_struct args;
+      //args.whichThread = i - 5;
+      args.host = argv[1];
+      args.portnum = argv[2];
+      args.filename = argv[fileNum - 1];
+      for (int j = 0; j < numberOfThreads; j++) {
+        pthread_create(&threads[j], NULL, getThread, (void *)&args);
+      }
+      
+      if (argc > 6) {
+        if (fileNum == argc) {
+          fileNum = 6;
+        }
+        else {
+          fileNum++;
+        }
+      }
+    }
+    
+    pthread_barrier_destroy(&myBarrier); //never reached just put in for fun.
+    
   return 0;
 }
