@@ -1,4 +1,4 @@
-//Updated 7:34
+//Updated 12:27
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -25,14 +25,29 @@ struct arg_struct {
     int arg1;
     int arg2;
     int arg3;
+    pthread_t * threadPointer;
 }; 
 void * runWeb(void * input);
-pthread_t threads[10];
-int threadNum = -1;
+
+//THREAD SETUP
+pthread_t * threads;
+int threadNum = 0;
+
+//BUFFER SETUP - for now just FIFO
 #define ANY 0
 #define FIFO 1
 #define HPIC 2
 #define HPHC 3
+struct buf_Struct{
+	char * buffer;
+	int file_fd;
+	int fd;
+	int hit;
+};
+struct buf_Struct * buffer_Structs;
+int putInBuff = 0;
+int takeFromBuff = 0;
+int buffers;//number of buffers
 //-------------------------------------//
 struct {
 	char *ext;
@@ -129,12 +144,32 @@ void web(int fd, int hit)
 	if(( file_fd = open(&buffer[5],O_RDONLY)) == -1) {  /* open the file for reading */
 		logger(NOTFOUND, "failed to open file",&buffer[5],fd);
 	}
+	
+	//--------------------------------------------------//
+	//	Here's Where I step into the Critical Region	//
+	//--------------------------------------------------//
+	// 1] Put the info into the buffer Based on scheduling
+	// 2] Take out of the buffer based on scheduling
+	// 3] Exit the critical Region
+	
+	//PUT INTO BUFFER
+	struct buf_Struct newBuf;
+	newBuf.buffer = buffer;
+	newBuf.file_fd = file_fd;
+	newBuf.fd = fd;
+	newBuf.hit = hit;
+	if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
+	buffer_Structs[putInBuff++] = newBuf;
+	//TAKE FROM BUFFER
+	if(takeFromBuff == buffers) takeFromBuff = 0; // make array into circular queue
+	struct buf_Struct bufToUse = buffer_Structs[takeFromBuff++];
+	// Done with critical region //
 	logger(LOG,"SEND",&buffer[5],hit);
-	len = (long)lseek(file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
-	      (void)lseek(file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
+	len = (long)lseek(bufToUse.file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
+	      (void)lseek(bufToUse.file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
           (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, fstr); /* Header + a blank line */
-	logger(LOG,"Header",buffer,hit);
-	dummy = write(fd,buffer,strlen(buffer));
+	logger(LOG,"Header",bufToUse.buffer,bufToUse.hit);
+	dummy = write(fd,bufToUse.buffer,strlen(bufToUse.buffer));
 	
     /* Send the statistical headers described in the paper, example below
     
@@ -143,8 +178,8 @@ void web(int fd, int hit)
     */
     
     /* send file in 8KB block - last block may be smaller */
-	while (	(ret = read(file_fd, buffer, BUFSIZE)) > 0 ) {
-		dummy = write(fd,buffer,ret);
+	while (	(ret = read(bufToUse.file_fd, bufToUse.buffer, BUFSIZE)) > 0 ) {
+		dummy = write(bufToUse.fd,bufToUse.buffer,ret);
 	}
 	sleep(1);	/* allow socket to drain before signalling the socket is closed */
 	close(fd);
@@ -165,13 +200,12 @@ void * runWeb(void * input){
 
 int main(int argc, char **argv)
 {
+	//printf("Moshe's code\n\n\n\n");
 	int i, port, /*pid,*/ listenfd, socketfd, hit;
 	socklen_t length;
 	static struct sockaddr_in cli_addr; /* static = initialised to zeros */
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
-	
-	
-//CURRENT CHANGE--->
+
 	if( argc < 3  || argc > 3 || !strcmp(argv[1], "-?") ) {
 		(void)printf("hint: nweb Port-Number Top-Directory\t\tversion %d\n\n"
 	"\tnweb is a small and very safe mini web server\n"
@@ -188,9 +222,6 @@ int main(int argc, char **argv)
 	"\tNo warranty given or implied\n\tNigel Griffiths nag@uk.ibm.com\n"  );
 		exit(0);
 	}
-	// Moshe's Edit
-	printf("The printout is: %s, %s, %s", argv[0],argv[1],argv[2]);
-	sleep(1);
 	if( !strncmp(argv[2],"/"   ,2 ) || !strncmp(argv[2],"/etc", 5 ) ||
 	    !strncmp(argv[2],"/bin",5 ) || !strncmp(argv[2],"/lib", 5 ) ||
 	    !strncmp(argv[2],"/tmp",5 ) || !strncmp(argv[2],"/usr", 5 ) ||
@@ -229,10 +260,10 @@ int main(int argc, char **argv)
 		printf("Invalid number of threads");
 		exit(1);
 	}
-	pthread_t threads[numberOfThreads];
+	threads = malloc(sizeof(pthread_t) * numberOfThreads);
 	int threadNum = -1; //intentionally set to -1
 	//BUFFER SETUP
-	int buffers = atoi(argv[4]);
+	buffers = atoi(argv[4]);
 	if(buffers < 1){ 
 		printf("Invalid number of buffers");
 		exit(1);
@@ -247,6 +278,8 @@ int main(int argc, char **argv)
 		printf("Invalid scheduling parameter. Options are: \"ANY\", \"FIFO\", \"HPIC\", \"HPHC\".");
 		exit(1);
 	}
+	//See older code for a diff. way to do buffers
+	buffer_Structs = malloc(sizeof(struct buf_Struct) * buffers);
 	
 	//------------------------------------------//
 	//	 End: Moshe's Edits to input scanning	//
@@ -269,18 +302,21 @@ int main(int argc, char **argv)
    		args.arg1 = socketfd;
    		args.arg2 = hit; 
    		args.arg3 = listenfd;
-		pthread_create(&threads[++threadNum], NULL, runWeb, (void *)&args);
-		
-		//sleep(1);
-		pthread_join(threads[threadNum], NULL);
-		if(threads[threadNum] < 0) {
+   		args.threadPointer = threads;
+
+   		//printf("args.threadPointer = %d, &threads = %d\n",args.threadPointer, &threads);
+		pthread_create(&threads[threadNum++], NULL, runWeb, (void *)&args);
+		pthread_join(threads[threadNum++], NULL);
+		//pthread_create(&tid2, NULL, hey, NULL);	
+		//if((pid = fork()) < 0) {
+		if(threads[threadNum-1] < 0) {
 			logger(ERROR,"system call","fork",0);
 		}
 		else {
-			if(threads[threadNum] == 0) { 	/* child */
+			if(threads[threadNum-1] == 0) { 	/* child */
 				//(void)close(listenfd);
 				//web(socketfd,hit); /* never returns */
-				int printer = threads[threadNum];
+				int printer = threads[threadNum-1];
 				printf("Child number%d\n", printer);
 			} else { 	/* parent */
 				(void)close(socketfd);
