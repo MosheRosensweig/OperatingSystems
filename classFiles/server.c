@@ -1,4 +1,4 @@
-//Updated 12:27
+//Updated 6:48 Sunday
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <sched.h>
 #define VERSION 23
 #define BUFSIZE 8096
 #define ERROR      42
@@ -22,29 +23,31 @@
 //			Moshe Written Code	  	   //
 //-------------------------------------//
 struct arg_struct {
-    int arg1;
-    int arg2;
-    int arg3;
-    pthread_t * threadPointer;
+    int listenfd;
+    int threadNumber;
 }; 
-void * runWeb(void * input);
+void putIntoBuffer(void * input, int schedule);
 
 //THREAD SETUP
 pthread_t * threads;
-int threadNum = 0;
+int * threadSwitch; //determine if threads should be work or not
+int maxNumThreads;
+int numberOfChildThreadsInUse = 0;
+int nextAvaliableThread = 0;
 
 //BUFFER SETUP - for now just FIFO
 #define ANY 0
 #define FIFO 1
 #define HPIC 2
 #define HPHC 3
-struct buf_Struct{
+struct request_Struct{
 	char * buffer;
 	int file_fd;
 	int fd;
 	int hit;
+	char * fstr;//file extension ex: .txt
 };
-struct buf_Struct * buffer_Structs;
+struct request_Struct * buffer_Structs;
 int putInBuff = 0;
 int takeFromBuff = 0;
 int buffers;//number of buffers
@@ -95,7 +98,7 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 }
 
 /* this is a child web server process, so we can exit on errors */
-void web(int fd, int hit)
+struct request_Struct parseInput(int fd, int hit)
 {
 	int j, file_fd, buflen;
 	long i, ret, len;
@@ -134,7 +137,7 @@ void web(int fd, int hit)
 	fstr = (char *)0;
 	for(i=0;extensions[i].ext != 0;i++) {
 		len = strlen(extensions[i].ext);
-		if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
+		if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) { //Compare the end of the string i.e the file extension
 			fstr =extensions[i].filetype;
 			break;
 		}
@@ -153,49 +156,97 @@ void web(int fd, int hit)
 	// 3] Exit the critical Region
 	
 	//PUT INTO BUFFER
-	struct buf_Struct newBuf;
+	struct request_Struct newBuf;
 	newBuf.buffer = buffer;
 	newBuf.file_fd = file_fd;
 	newBuf.fd = fd;
 	newBuf.hit = hit;
+	newBuf.fstr = fstr;
+	/* Moved this to another method - hopefully it works
 	if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
 	buffer_Structs[putInBuff++] = newBuf;
-	//TAKE FROM BUFFER
-	if(takeFromBuff == buffers) takeFromBuff = 0; // make array into circular queue
-	struct buf_Struct bufToUse = buffer_Structs[takeFromBuff++];
-	// Done with critical region //
-	logger(LOG,"SEND",&buffer[5],hit);
-	len = (long)lseek(bufToUse.file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
-	      (void)lseek(bufToUse.file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
-          (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, fstr); /* Header + a blank line */
-	logger(LOG,"Header",bufToUse.buffer,bufToUse.hit);
-	dummy = write(fd,bufToUse.buffer,strlen(bufToUse.buffer));
-	
-    /* Send the statistical headers described in the paper, example below
-    
-    (void)sprintf(buffer,"X-stat-req-arrival-count: %d\r\n", xStatReqArrivalCount);
-	dummy = write(fd,buffer,strlen(buffer));
-    */
-    
-    /* send file in 8KB block - last block may be smaller */
-	while (	(ret = read(bufToUse.file_fd, bufToUse.buffer, BUFSIZE)) > 0 ) {
-		dummy = write(bufToUse.fd,bufToUse.buffer,ret);
+	*/
+	return newBuf;
+	//Above this is called from the parent
 	}
-	sleep(1);	/* allow socket to drain before signalling the socket is closed */
-	close(fd);
-	exit(1);
+	
+	/*
+	 * Attempting to decouple things a bit - hopefully this works
+	 */
+	void putIntoBuffer(void * input, int schedule){
+		//TODO - Manage schedualing
+		struct request_Struct *newBuf = input;
+		if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
+		buffer_Structs[putInBuff++] = *newBuf;
+	}
+
+struct request_Struct takeFromBuffer()
+{
+	//TODO - Manage scheduling
+	if(takeFromBuff == buffers) takeFromBuff = 0; // make array into circular queue
+	struct request_Struct bufToUse = buffer_Structs[takeFromBuff++];
+	return bufToUse;
 }
 
-void * runWeb(void * input){
+/*
+ * The child thread code
+ */
+void * child(void * input){ // for now runChild calls child, but I'm leaving it setup in case I want to call it directly from pthread_create
+	int threadNum = *(int *)input;
+	printf("\nChild #%d was created.", threadNum);
+	fflush(stdout);
+	while(1){
+		while(threadSwitch[threadNum] == 0) sched_yield();
+		long len, ret;
+		//TAKE FROM BUFFER
+		//TODO LOCK THIS
+		struct request_Struct bufToUse = takeFromBuffer();
+		//TODO UNLOCK THIS
 	
-	struct arg_struct *args = input;
-	int fd 		 = args->arg1;
-	int hit		 = args->arg2;
-	int listenfd = args->arg3;
-	//stuff from the old if else
-	(void)close(listenfd);
-	web(fd, hit);
+		/* Decoupled it
+		if(takeFromBuff == buffers) takeFromBuff = 0; // make array into circular queue
+		struct request_Struct bufToUse = buffer_Structs[takeFromBuff++];
+		*/
+		// Done with critical region //
+	
+		logger(LOG,"SEND",&bufToUse.buffer[5],bufToUse.hit);
+		len = (long)lseek(bufToUse.file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
+	   	   (void)lseek(bufToUse.file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
+      	    (void)sprintf(bufToUse.buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, bufToUse.fstr); /* Header + a blank line */
+		logger(LOG,"Header",bufToUse.buffer,bufToUse.hit);
+		dummy = write(bufToUse.fd,bufToUse.buffer,strlen(bufToUse.buffer));
+	
+  	  /* Send the statistical headers described in the paper, example below
+    
+  	  (void)sprintf(buffer,"X-stat-req-arrival-count: %d\r\n", xStatReqArrivalCount);
+		dummy = write(fd,buffer,strlen(buffer));
+  	  */
+    
+   	 /* send file in 8KB block - last block may be smaller */
+		while (	(ret = read(bufToUse.file_fd, bufToUse.buffer, BUFSIZE)) > 0 ) {
+			dummy = write(bufToUse.fd,bufToUse.buffer,ret);
+		}
+		sleep(1);	/* allow socket to drain before signalling the socket is closed */
+		close(bufToUse.fd);
+		//exit(1); //this is no longer a process so we cannot exit
+	}
 	return NULL;
+}
+
+void runChild(int listenfd, int childNum){
+	(void)close(listenfd);
+	threadSwitch[childNum] = 1; //turn on the child
+}
+
+/*
+ * If there are no free threads, yield
+ * If there are free threads, return the next one
+ */
+int getNextAvailableThread(){
+	while(numberOfChildThreadsInUse == maxNumThreads) sched_yield();
+	int next = nextAvaliableThread++%maxNumThreads;
+	numberOfChildThreadsInUse++;
+	return next;
 }
 
 int main(int argc, char **argv)
@@ -206,7 +257,7 @@ int main(int argc, char **argv)
 	static struct sockaddr_in cli_addr; /* static = initialised to zeros */
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
 
-	if( argc < 3  || argc > 3 || !strcmp(argv[1], "-?") ) {
+	if( argc < 6  || argc > 6 || !strcmp(argv[1], "-?") ) {
 		(void)printf("hint: nweb Port-Number Top-Directory\t\tversion %d\n\n"
 	"\tnweb is a small and very safe mini web server\n"
 	"\tnweb only servers out file/web pages with extensions named below\n"
@@ -238,16 +289,13 @@ int main(int argc, char **argv)
 		return 0; /* parent returns OK to shell */
 	(void)signal(SIGCHLD, SIG_IGN); /* ignore child death */
 	(void)signal(SIGHUP, SIG_IGN); /* ignore terminal hangups */
+printf("\nGot to here");
+fflush(stdout);
 	for(i=0;i<32;i++)
 		(void)close(i);		/* close open files */
 	(void)setpgrp();		/* break away from process group */
-	logger(LOG,"nweb starting",argv[1],getpid());
-	/* setup the network socket */
-	if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
-		logger(ERROR, "system call","socket",0);
-	port = atoi(argv[1]);
-	if(port < 0 || port >60000)
-		logger(ERROR,"Invalid port number (try 1->60000)",argv[1],0);
+printf("\nGot to here2");
+fflush(stdout);
 	//------------------------------------------//
 	//	 Start: Moshe's Edits to input scanning	//
 	//------------------------------------------//
@@ -255,20 +303,20 @@ int main(int argc, char **argv)
 	// Old Version: ./server [portnum] [folder] &
 	// New Version: ./server [portnum] [folder] [threads] [buffers] [schedalg] &
 	//THREAD SETUP
-	int numberOfThreads = atoi(argv[3]);
-	if(numberOfThreads < 1){ 
+	int maxNumThreads = atoi(argv[3]);
+	if(maxNumThreads < 1){ 
 		printf("Invalid number of threads");
 		exit(1);
 	}
-	threads = malloc(sizeof(pthread_t) * numberOfThreads);
-	int threadNum = -1; //intentionally set to -1
+	threads		 = malloc(sizeof(pthread_t) * maxNumThreads);
+	threadSwitch = malloc(sizeof(int ) 		* maxNumThreads);
 	//BUFFER SETUP
 	buffers = atoi(argv[4]);
 	if(buffers < 1){ 
 		printf("Invalid number of buffers");
 		exit(1);
 	}
-	//SCHEDULE  SETUP
+	//SCHEDULE  SETUP 
 	int schedule; 
 	if(!strcmp(argv[5], "ANY")) schedule = ANY;
 	else if(!strcmp(argv[5], "FIFO")) schedule = FIFO;
@@ -279,11 +327,20 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 	//See older code for a diff. way to do buffers
-	buffer_Structs = malloc(sizeof(struct buf_Struct) * buffers);
-	
+	buffer_Structs = malloc(sizeof(struct request_Struct) * buffers);
+	printf("Input was: \nargv[0] = %s, argv[1] = %s, argv[2] = %s, argv[3] = %s, argv[4] = %s, argv[5] = %s\n", 
+		argv[0],  argv[1],  argv[2],  argv[3], argv[4], argv[5]);
+	fflush(stdout);
 	//------------------------------------------//
 	//	 End: Moshe's Edits to input scanning	//
 	//------------------------------------------//
+	logger(LOG,"nweb starting",argv[1],getpid());
+	/* setup the network socket */
+	if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
+		logger(ERROR, "system call","socket",0);
+	port = atoi(argv[1]);
+	if(port < 0 || port >60000)
+		logger(ERROR,"Invalid port number (try 1->60000)",argv[1],0);
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
@@ -297,30 +354,37 @@ int main(int argc, char **argv)
 			logger(ERROR,"system call","accept",0);
 		
 //----> Look Here TO Make Changes	
-		printf("\n\n\t\tMoshe's code, see line 231 for the sleep... right now this is needed to print results \n\n");
-		struct arg_struct args;
-   		args.arg1 = socketfd;
-   		args.arg2 = hit; 
-   		args.arg3 = listenfd;
-   		args.threadPointer = threads;
-
-   		//printf("args.threadPointer = %d, &threads = %d\n",args.threadPointer, &threads);
-		pthread_create(&threads[threadNum++], NULL, runWeb, (void *)&args);
-		pthread_join(threads[threadNum++], NULL);
-		//pthread_create(&tid2, NULL, hey, NULL);	
-		//if((pid = fork()) < 0) {
-		if(threads[threadNum-1] < 0) {
-			logger(ERROR,"system call","fork",0);
+		//------------------//
+		//		Plan		//
+		//------------------//
+		// 1] Start all the threads
+		// 2] Take the input, and parse it and put it into the buffer_Structs based on scheduling
+		// 3] Check if there are available threads, if:
+		//		[a] yes - run that thread with the next available request
+		//		[b] no  - yield until there is
+		// 4] Start again
+		
+		//START ALL THE THREADS
+		for(int i = 0; i < maxNumThreads; i++){
+			int status;
+			if((status = pthread_create(&threads[i], NULL, child, (void *)&i)) != 0)
+				logger(ERROR,"system call","pthread_create",0);
 		}
-		else {
-			if(threads[threadNum-1] == 0) { 	/* child */
-				//(void)close(listenfd);
-				//web(socketfd,hit); /* never returns */
-				int printer = threads[threadNum-1];
-				printf("Child number%d\n", printer);
-			} else { 	/* parent */
-				(void)close(socketfd);
-			}
-		}
+		//PARSE INPUT
+		struct request_Struct newBuf = parseInput(socketfd, hit);
+		//TODO   lock the buffer
+		putIntoBuffer((void *)&newBuf, schedule);
+		//TODO unlock the buffer
+		//START WORKER CHILD THREAD
+		int availableThreadNum = getNextAvailableThread();
+		runChild(listenfd, availableThreadNum);
+		//REPEAT
 	}
 }
+
+/*
+Questions I still need answers for:
+1]	What "close"ing should I do in the children. Is that a remnant of multiprocessing code
+	or is it still שייך?
+2] 
+*/
