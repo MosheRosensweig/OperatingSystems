@@ -12,12 +12,20 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <sched.h>
+
 #define VERSION 23
 #define BUFSIZE 8096
 #define ERROR      42
 #define LOG        44
 #define FORBIDDEN 403
 #define NOTFOUND  404
+
+//---------------------//
+//  MICAH ADDED CODE //
+//-------------------//
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 //-------------------------------------//
 //			Moshe Written Code	  	   //
@@ -172,21 +180,29 @@ struct request_Struct parseInput(int fd, int hit)
 	//Above this is called from the parent
 	}
 	
-	/*
-	 * Attempting to decouple things a bit - hopefully this works
-	 */
-	void putIntoBuffer(void * input, int schedule){
-		//TODO - Manage schedualing
-		struct request_Struct *newBuf = input;
-		if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
-		buffer_Structs[putInBuff++] = *newBuf;
-	}
+/*
+ * Attempting to decouple things a bit - hopefully this works
+ */
+void putIntoBuffer(void * input, int schedule){
+    //TODO - Manage schedualing
+    struct request_Struct *newBuf = input;
+    if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
+    //POTENTIALLY  pthread_cond_wait( & cond, & mutex ); 
+    pthread_mutex_lock(&mutex); //MADD
+    buffer_Structs[putInBuff++] = *newBuf;
+    pthread_cond_signal(&cond); 
+    pthread_mutex_unlock(&mutex);
+}
 
 struct request_Struct takeFromBuffer()
 {
 	//TODO - Manage scheduling
 	if(takeFromBuff == buffers) takeFromBuff = 0; // make array into circular queue
+	// pthread_cond_wait( & cond, & mutex ); POTENTIALLY.
+	pthread_mutex_lock(&mutex); //MADD
 	struct request_Struct bufToUse = buffer_Structs[takeFromBuff++];
+	pthread_cond_signal(&cond); 
+    pthread_mutex_unlock(&mutex);
 	return bufToUse;
 }
 
@@ -200,6 +216,7 @@ void * child(void * input){
 		long len, ret;
 		//TAKE FROM BUFFER
 		//TODO LOCK THIS
+		//This is now all handled automatically.
 		struct request_Struct bufToUse = takeFromBuffer();
 		//TODO UNLOCK THIS
 
@@ -339,6 +356,9 @@ int main(int argc, char **argv)
 		logger(ERROR,"system call","listen",0);
 	*/
 			
+			
+    
+    
 	//START ALL THE THREADS
 	for(int j = 0; j < maxNumThreads; j++){
 		threadSwitch[j] = 0;//start thread in off position
