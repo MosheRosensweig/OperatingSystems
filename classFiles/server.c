@@ -74,7 +74,6 @@ static int dummy; //keep compiler happy
 
 void logger(int type, char *s1, char *s2, int socket_fd)
 {
-printf("\nLogger was called for = %s,  (line 75 for now)\n", s1); fflush(stdout);
 	int fd ;
 	char logbuffer[BUFSIZE*2];
 
@@ -98,7 +97,6 @@ printf("\nLogger was called for = %s,  (line 75 for now)\n", s1); fflush(stdout)
 		(void)close(fd);
 	}
 	if(type == ERROR || type == NOTFOUND || type == FORBIDDEN) exit(3);
-printf("\nIf it got here it passed the error checks (line 99 for now)\n"); fflush(stdout);
 }
 
 /* this is a child web server process, so we can exit on errors */
@@ -119,7 +117,6 @@ struct request_Struct parseInput(int fd, int hit)
 	for(i=0;i<ret;i++)	/* remove CF and LF characters */
 		if(buffer[i] == '\r' || buffer[i] == '\n')
 			buffer[i]='*';
-printf("\nThis should come first (line 121 for now)\n"); fflush(stdout);
 	logger(LOG,"request",buffer,hit);
 	if( strncmp(buffer,"GET ",4) && strncmp(buffer,"get ",4) ) {
 		logger(FORBIDDEN,"Only simple GET operation supported",buffer,fd);
@@ -198,7 +195,6 @@ struct request_Struct takeFromBuffer()
  */
 void * child(void * input){ 
 	int threadNum = threadSetUp++;
-printf("Child #%d was created.\n", threadNum); fflush(stdout);
 	while(1){
 		while(threadSwitch[threadNum] == 0) sched_yield();
 		long len, ret;
@@ -206,21 +202,15 @@ printf("Child #%d was created.\n", threadNum); fflush(stdout);
 		//TODO LOCK THIS
 		struct request_Struct bufToUse = takeFromBuffer();
 		//TODO UNLOCK THIS
-	
-		/* Decoupled it
-		if(takeFromBuff == buffers) takeFromBuff = 0; // make array into circular queue
-		struct request_Struct bufToUse = buffer_Structs[takeFromBuff++];
-		*/
+
 		// Done with critical region //
 	
 		logger(LOG,"SEND",&bufToUse.buffer[5],bufToUse.hit);
 		len = (long)lseek(bufToUse.file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
 	   	   (void)lseek(bufToUse.file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
       	    (void)sprintf(bufToUse.buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, bufToUse.fstr); /* Header + a blank line */
-printf("\nThread #%d (line 220 for now)\n", threadNum); fflush(stdout);
 		logger(LOG,"Header",bufToUse.buffer,bufToUse.hit);
 		dummy = write(bufToUse.fd,bufToUse.buffer,strlen(bufToUse.buffer));
-printf("\nThread yeah #%d (line 223 for now)\n", threadNum); fflush(stdout);
   	  /* Send the statistical headers described in the paper, example below
     
   	  (void)sprintf(buffer,"X-stat-req-arrival-count: %d\r\n", xStatReqArrivalCount);
@@ -240,7 +230,7 @@ printf("\nThread yeah #%d (line 223 for now)\n", threadNum); fflush(stdout);
 }
 
 void runChild(int listenfd, int childNum){
-	(void)close(listenfd);
+	(void)close(listenfd);//TODO check if this is right
 	threadSwitch[childNum] = 1; //turn on the child
 }
 
@@ -248,7 +238,7 @@ void runChild(int listenfd, int childNum){
  * If there are no free threads, yield
  * If there are free threads, return the next one
  */
-int getNextAvailableThread(){
+int getNextAvailableThread(){ //TODO redo by scanning the threadSwitch stuff
 	while(numberOfChildThreadsInUse == maxNumThreads) sched_yield();
 	int next = nextAvaliableThread++%maxNumThreads;
 	numberOfChildThreadsInUse++;
@@ -257,7 +247,6 @@ int getNextAvailableThread(){
 
 int main(int argc, char **argv)
 {
-	//printf("Moshe's code\n\n\n\n");
 	int i, port, /*pid,*/ listenfd, socketfd, hit;
 	socklen_t length;
 	static struct sockaddr_in cli_addr; /* static = initialised to zeros */
@@ -295,13 +284,9 @@ int main(int argc, char **argv)
 		return 0; /* parent returns OK to shell */
 	(void)signal(SIGCHLD, SIG_IGN); /* ignore child death */
 	(void)signal(SIGHUP, SIG_IGN); /* ignore terminal hangups */
-printf("\nGot to here");
-fflush(stdout);
 	for(i=0;i<32;i++)
 		(void)close(i);		/* close open files */
 	(void)setpgrp();		/* break away from process group */
-printf("\nThe code should reach here but doesn't for some reason");
-fflush(stdout);
 	logger(LOG,"nweb starting",argv[1],getpid());
 	/* setup the network socket */
 	if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
@@ -341,9 +326,6 @@ fflush(stdout);
 	}
 	//See older code for a diff. way to do buffers
 	buffer_Structs = malloc(sizeof(struct request_Struct) * buffers);
-	printf("Input was: \nargv[0] = %s, argv[1] = %s, argv[2] = %s, argv[3] = %s, argv[4] = %s, argv[5] = %s\n", 
-		argv[0],  argv[1],  argv[2],  argv[3], argv[4], argv[5]);
-	fflush(stdout);
 	//------------------------------------------//
 	//	 End: Moshe's Edits to input scanning	//
 	//------------------------------------------//
@@ -359,27 +341,20 @@ fflush(stdout);
 			
 	//START ALL THE THREADS
 	for(int j = 0; j < maxNumThreads; j++){
-		int * jP = &j;
-		threadSwitch[j] = 0;
-printf("j = %d\n", j); fflush(stdout);
-printf("jP = %p\n", (void *)jP); fflush(stdout);
+		threadSwitch[j] = 0;//start thread in off position
 		int status;
 		if((status = pthread_create(&threads[j], NULL, child, NULL)) != 0)
 			logger(ERROR,"system call","pthread_create",0);
 	}
 	
-	//THE LOOP
+	//THE MAIN LOOP
 	for(hit=1; ;hit++) {
-	
-printf("\nhit=%d\n", hit); fflush(stdout);
-		
 	if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
 	logger(ERROR,"system call","bind",0);
 	if( listen(listenfd,64) <0)
 	logger(ERROR,"system call","listen",0);
 	length = sizeof(cli_addr);
 	if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0){
-		printf("Failed reading, hit = %d (line 372 for now)\n", hit); fflush(stdout);
 		logger(ERROR,"system call","accept",0);
 	}
 		
@@ -395,10 +370,9 @@ printf("\nhit=%d\n", hit); fflush(stdout);
 		// 4] Start again
 
 		//PARSE INPUT
-printf("\nThis should be the first thing you see (line 389 for now)"); fflush(stdout);
-		struct request_Struct newBuf = parseInput(socketfd, hit);
+		struct request_Struct newReq = parseInput(socketfd, hit);
 		//TODO   lock the buffer
-		putIntoBuffer((void *)&newBuf, schedule);
+		putIntoBuffer((void *)&newReq, schedule);
 		//TODO unlock the buffer
 		//START WORKER CHILD THREAD
 		int availableThreadNum = getNextAvailableThread();
