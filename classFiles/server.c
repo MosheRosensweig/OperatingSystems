@@ -34,6 +34,7 @@ int * threadSwitch; //determine if threads should be work or not
 int maxNumThreads;
 int numberOfChildThreadsInUse = 0;
 int nextAvaliableThread = 0;
+int threadSetUp = 0; //see child for how it's used
 
 //BUFFER SETUP - for now just FIFO
 #define ANY 0
@@ -51,6 +52,7 @@ struct request_Struct * buffer_Structs;
 int putInBuff = 0;
 int takeFromBuff = 0;
 int buffers;//number of buffers
+
 //-------------------------------------//
 struct {
 	char *ext;
@@ -72,7 +74,7 @@ static int dummy; //keep compiler happy
 
 void logger(int type, char *s1, char *s2, int socket_fd)
 {
-printf("\narg[1] = %s, it should = nweb starting (line 75 for now)\n", s1); fflush(stdout);
+printf("\nLogger was called for = %s,  (line 75 for now)\n", s1); fflush(stdout);
 	int fd ;
 	char logbuffer[BUFSIZE*2];
 
@@ -194,10 +196,9 @@ struct request_Struct takeFromBuffer()
 /*
  * The child thread code
  */
-void * child(void * input){ // for now runChild calls child, but I'm leaving it setup in case I want to call it directly from pthread_create
-	int threadNum = *(int *)input;
-	printf("\nChild #%d was created.\n", threadNum);
-	fflush(stdout);
+void * child(void * input){ 
+	int threadNum = threadSetUp++;
+printf("Child #%d was created.\n", threadNum); fflush(stdout);
 	while(1){
 		while(threadSwitch[threadNum] == 0) sched_yield();
 		long len, ret;
@@ -314,7 +315,7 @@ fflush(stdout);
 	// Old Version: ./server [portnum] [folder] &
 	// New Version: ./server [portnum] [folder] [threads] [buffers] [schedalg] &
 	//THREAD SETUP
-	int maxNumThreads = atoi(argv[3]);
+	maxNumThreads = atoi(argv[3]);
 	if(maxNumThreads < 1){ 
 		printf("Invalid number of threads");
 		exit(1);
@@ -352,29 +353,38 @@ fflush(stdout);
 		logger(ERROR,"system call","bind",0);
 	if( listen(listenfd,64) <0)
 		logger(ERROR,"system call","listen",0);
+	
+			
+	//START ALL THE THREADS
+	for(int j = 0; j < maxNumThreads; j++){
+		int * jP = &j;
+		threadSwitch[j] = 0;
+printf("j = %d\n", j); fflush(stdout);
+printf("jP = %p\n", (void *)jP); fflush(stdout);
+		int status;
+		if((status = pthread_create(&threads[j], NULL, child, NULL)) != 0)
+			logger(ERROR,"system call","pthread_create",0);
+	}
+	
 	for(hit=1; ;hit++) {
+printf("\nhit=%d\n", hit); fflush(stdout);
 		length = sizeof(cli_addr);
-		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
+		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0){
+			printf("Failed reading, hit = %d (line 372 for now)\n", hit); fflush(stdout);
 			logger(ERROR,"system call","accept",0);
+			}
 		
 //----> Look Here TO Make Changes	
 		//------------------//
 		//		Plan		//
 		//------------------//
-		// 1] Start all the threads
+		// 1] Start all the threads - above
 		// 2] Take the input, and parse it and put it into the buffer_Structs based on scheduling
 		// 3] Check if there are available threads, if:
 		//		[a] yes - run that thread with the next available request
 		//		[b] no  - yield until there is
 		// 4] Start again
-		
-		//START ALL THE THREADS
-		for(int j = 0; j < maxNumThreads; j++){
-			threadSwitch[j] = 0;
-			int status;
-			if((status = pthread_create(&threads[j], NULL, child, (void *)&j)) != 0)
-				logger(ERROR,"system call","pthread_create",0);
-		}
+
 		//PARSE INPUT
 printf("\nThis should be the first thing you see (line 379)"); fflush(stdout);
 		struct request_Struct newBuf = parseInput(socketfd, hit);
