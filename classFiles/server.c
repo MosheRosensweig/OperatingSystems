@@ -72,6 +72,7 @@ static int dummy; //keep compiler happy
 
 void logger(int type, char *s1, char *s2, int socket_fd)
 {
+printf("\narg[1] = %s, it should = nweb starting (line 75 for now)\n", s1); fflush(stdout);
 	int fd ;
 	char logbuffer[BUFSIZE*2];
 
@@ -95,6 +96,7 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 		(void)close(fd);
 	}
 	if(type == ERROR || type == NOTFOUND || type == FORBIDDEN) exit(3);
+printf("\nIf it got here it passed the error checks (line 99 for now)\n"); fflush(stdout);
 }
 
 /* this is a child web server process, so we can exit on errors */
@@ -115,6 +117,7 @@ struct request_Struct parseInput(int fd, int hit)
 	for(i=0;i<ret;i++)	/* remove CF and LF characters */
 		if(buffer[i] == '\r' || buffer[i] == '\n')
 			buffer[i]='*';
+printf("\nThis should come first (line 121 for now)\n"); fflush(stdout);
 	logger(LOG,"request",buffer,hit);
 	if( strncmp(buffer,"GET ",4) && strncmp(buffer,"get ",4) ) {
 		logger(FORBIDDEN,"Only simple GET operation supported",buffer,fd);
@@ -193,7 +196,7 @@ struct request_Struct takeFromBuffer()
  */
 void * child(void * input){ // for now runChild calls child, but I'm leaving it setup in case I want to call it directly from pthread_create
 	int threadNum = *(int *)input;
-	printf("\nChild #%d was created.", threadNum);
+	printf("\nChild #%d was created.\n", threadNum);
 	fflush(stdout);
 	while(1){
 		while(threadSwitch[threadNum] == 0) sched_yield();
@@ -229,6 +232,7 @@ void * child(void * input){ // for now runChild calls child, but I'm leaving it 
 		sleep(1);	/* allow socket to drain before signalling the socket is closed */
 		close(bufToUse.fd);
 		//exit(1); //this is no longer a process so we cannot exit
+		threadSwitch[threadNum] = 0; //turn off the thread
 	}
 	return NULL;
 }
@@ -294,8 +298,15 @@ fflush(stdout);
 	for(i=0;i<32;i++)
 		(void)close(i);		/* close open files */
 	(void)setpgrp();		/* break away from process group */
-printf("\nGot to here2");
+printf("\nThe code should reach here but doesn't for some reason");
 fflush(stdout);
+	logger(LOG,"nweb starting",argv[1],getpid());
+	/* setup the network socket */
+	if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
+		logger(ERROR, "system call","socket",0);
+	port = atoi(argv[1]);
+	if(port < 0 || port >60000)
+		logger(ERROR,"Invalid port number (try 1->60000)",argv[1],0);
 	//------------------------------------------//
 	//	 Start: Moshe's Edits to input scanning	//
 	//------------------------------------------//
@@ -334,13 +345,6 @@ fflush(stdout);
 	//------------------------------------------//
 	//	 End: Moshe's Edits to input scanning	//
 	//------------------------------------------//
-	logger(LOG,"nweb starting",argv[1],getpid());
-	/* setup the network socket */
-	if((listenfd = socket(AF_INET, SOCK_STREAM,0)) <0)
-		logger(ERROR, "system call","socket",0);
-	port = atoi(argv[1]);
-	if(port < 0 || port >60000)
-		logger(ERROR,"Invalid port number (try 1->60000)",argv[1],0);
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
@@ -365,12 +369,14 @@ fflush(stdout);
 		// 4] Start again
 		
 		//START ALL THE THREADS
-		for(int i = 0; i < maxNumThreads; i++){
+		for(int j = 0; j < maxNumThreads; j++){
+			threadSwitch[j] = 0;
 			int status;
-			if((status = pthread_create(&threads[i], NULL, child, (void *)&i)) != 0)
+			if((status = pthread_create(&threads[j], NULL, child, (void *)&j)) != 0)
 				logger(ERROR,"system call","pthread_create",0);
 		}
 		//PARSE INPUT
+printf("\nThis should be the first thing you see (line 379)"); fflush(stdout);
 		struct request_Struct newBuf = parseInput(socketfd, hit);
 		//TODO   lock the buffer
 		putIntoBuffer((void *)&newBuf, schedule);
