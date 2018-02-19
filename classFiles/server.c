@@ -332,12 +332,11 @@ int main(int argc, char **argv)
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
-	/* moved below
 	if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
 		logger(ERROR,"system call","bind",0);
 	if( listen(listenfd,64) <0)
 		logger(ERROR,"system call","listen",0);
-	*/
+	
 			
 	//START ALL THE THREADS
 	for(int j = 0; j < maxNumThreads; j++){
@@ -349,10 +348,6 @@ int main(int argc, char **argv)
 	
 	//THE MAIN LOOP
 	for(hit=1; ;hit++) {
-	if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
-	logger(ERROR,"system call","bind",0);
-	if( listen(listenfd,64) <0)
-	logger(ERROR,"system call","listen",0);
 	length = sizeof(cli_addr);
 	if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0){
 		logger(ERROR,"system call","accept",0);
