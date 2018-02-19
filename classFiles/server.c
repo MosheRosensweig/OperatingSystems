@@ -217,9 +217,10 @@ printf("Child #%d was created.\n", threadNum); fflush(stdout);
 		len = (long)lseek(bufToUse.file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
 	   	   (void)lseek(bufToUse.file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
       	    (void)sprintf(bufToUse.buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, bufToUse.fstr); /* Header + a blank line */
+printf("\nThread #%d (line 220 for now)\n", threadNum); fflush(stdout);
 		logger(LOG,"Header",bufToUse.buffer,bufToUse.hit);
 		dummy = write(bufToUse.fd,bufToUse.buffer,strlen(bufToUse.buffer));
-	
+printf("\nThread yeah #%d (line 223 for now)\n", threadNum); fflush(stdout);
   	  /* Send the statistical headers described in the paper, example below
     
   	  (void)sprintf(buffer,"X-stat-req-arrival-count: %d\r\n", xStatReqArrivalCount);
@@ -349,11 +350,12 @@ fflush(stdout);
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
+	/* moved below
 	if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
 		logger(ERROR,"system call","bind",0);
 	if( listen(listenfd,64) <0)
 		logger(ERROR,"system call","listen",0);
-	
+	*/
 			
 	//START ALL THE THREADS
 	for(int j = 0; j < maxNumThreads; j++){
@@ -366,13 +368,20 @@ printf("jP = %p\n", (void *)jP); fflush(stdout);
 			logger(ERROR,"system call","pthread_create",0);
 	}
 	
+	//THE LOOP
 	for(hit=1; ;hit++) {
+	
 printf("\nhit=%d\n", hit); fflush(stdout);
-		length = sizeof(cli_addr);
-		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0){
-			printf("Failed reading, hit = %d (line 372 for now)\n", hit); fflush(stdout);
-			logger(ERROR,"system call","accept",0);
-			}
+		
+	if(bind(listenfd, (struct sockaddr *)&serv_addr,sizeof(serv_addr)) <0)
+	logger(ERROR,"system call","bind",0);
+	if( listen(listenfd,64) <0)
+	logger(ERROR,"system call","listen",0);
+	length = sizeof(cli_addr);
+	if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0){
+		printf("Failed reading, hit = %d (line 372 for now)\n", hit); fflush(stdout);
+		logger(ERROR,"system call","accept",0);
+	}
 		
 //----> Look Here TO Make Changes	
 		//------------------//
@@ -386,7 +395,7 @@ printf("\nhit=%d\n", hit); fflush(stdout);
 		// 4] Start again
 
 		//PARSE INPUT
-printf("\nThis should be the first thing you see (line 379)"); fflush(stdout);
+printf("\nThis should be the first thing you see (line 389 for now)"); fflush(stdout);
 		struct request_Struct newBuf = parseInput(socketfd, hit);
 		//TODO   lock the buffer
 		putIntoBuffer((void *)&newBuf, schedule);
@@ -395,8 +404,12 @@ printf("\nThis should be the first thing you see (line 379)"); fflush(stdout);
 		int availableThreadNum = getNextAvailableThread();
 		runChild(listenfd, availableThreadNum);
 		//REPEAT
+		sleep(2);
 	}
 }
+
+
+
 
 /*
 Questions I still need answers for:
