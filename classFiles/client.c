@@ -17,7 +17,6 @@ struct arg_struct {
     char* host;
     char* portnum;
     char* filename;
-    int whichThread;
 }; 
 
 pthread_barrier_t myBarrier;
@@ -93,9 +92,9 @@ void * getThread(void * input){
   
   }
 		
-	//printf("\n\nThread #%d state: %d, %s\n\n", args->whichThread, clientfd, args->filename);
+	printf("\n\nThread #%p\n\n", (void *) pthread_self());
+	fflush(stdout);
     
-    if (FIFO) sem_wait(&mutex);
     //TODO Possible bad: FIFO doesn't ensure that the FIRST thread is the FIRST thread.
     //I'm assuming that they each reach this position in order.
     
@@ -143,6 +142,7 @@ int main(int argc, char **argv) {
       args.portnum = argv[2];
       args.filename = argv[fileNum - 1];
       for (int j = 0; j < numberOfThreads; j++) {
+        if (FIFO) sem_wait(&mutex);
         pthread_create(&threads[j], NULL, getThread, (void *)&args);
       }
       
@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
       }
     }
     
-    pthread_barrier_destroy(&myBarrier); //never reached just put in for fun.
+    //pthread_barrier_destroy(&myBarrier); //never reached just put in for fun.
     
   return 0;
 }
