@@ -1,0 +1,4 @@
+Just a note: The client has to redo the connection each time.
+This means that each thread has to do ALL the set up work.
+One could use a persistent keep-alive (which became the default)
+in HTTP 1.1, but since we are 1.0 I'll just leave it. 

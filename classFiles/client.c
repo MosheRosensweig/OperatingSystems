@@ -4,12 +4,29 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <semaphore.h>
 
 /* Network */
 #include <netdb.h>
 #include <sys/socket.h>
 
 #define BUF_SIZE 100
+
+struct arg_struct {
+    char* host;
+    char* portnum;
+    char* filename;
+    int whichThread;
+}; 
+
+pthread_barrier_t myBarrier;
+
+int FIFO = 0;
+
+void *getThread(void * input);
+
+sem_t mutex;
 
 // Get host information (used to establishConnection)
 struct addrinfo *getHostInfo(char* host, char* port) {
@@ -54,6 +71,7 @@ int establishConnection(struct addrinfo *info) {
   return -1;
 }
 
+
 // Send GET request
 void GET(int clientfd, char *path) {
   char req[1000] = {0};
@@ -61,31 +79,84 @@ void GET(int clientfd, char *path) {
   send(clientfd, req, strlen(req), 0);
 }
 
-int main(int argc, char **argv) {
+void * getThread(void * input){
+  struct arg_struct *args = input;
   int clientfd;
-  char buf[BUF_SIZE];
-
-  if (argc != 4) {
-    fprintf(stderr, "USAGE: ./httpclient <hostname> <port> <request path>\n");
-    return 1;
-  }
-
+  
   // Establish connection with <hostname>:<port>
-  clientfd = establishConnection(getHostInfo(argv[1], argv[2]));
+  clientfd = establishConnection(getHostInfo(args->host, args->portnum));
   if (clientfd == -1) {
     fprintf(stderr,
             "[main:73] Failed to connect to: %s:%s%s \n",
-            argv[1], argv[2], argv[3]);
-    return 3;
+            args->host, args->portnum, args->filename);
+    return NULL;
+  
   }
+		
+	//printf("\n\nThread #%d state: %d, %s\n\n", args->whichThread, clientfd, args->filename);
+    
+    if (FIFO) sem_wait(&mutex);
+    //TODO Possible bad: FIFO doesn't ensure that the FIRST thread is the FIRST thread.
+    //I'm assuming that they each reach this position in order.
+    
+    GET(clientfd, args->filename);
 
-  // Send GET request > stdout
-  GET(clientfd, argv[3]);
-  while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
+    if (FIFO) sem_post(&mutex);
+    pthread_barrier_wait(&myBarrier);
+    
+    char buf[BUF_SIZE];
+    while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
     fputs(buf, stdout);
     memset(buf, 0, BUF_SIZE);
-  }
+    }
+    
+    close(clientfd);
+	return NULL;
+}
 
-  close(clientfd);
+int main(int argc, char **argv) {
+
+  if (argc < 6) {
+    fprintf(stderr, "USAGE: client [host] [portnum] [threads] [schedalg] [filename1] [filename2]\n");
+    return 1;
+  }
+  
+  
+  int numberOfThreads = atoi(argv[3]);
+	if(numberOfThreads < 1){ 
+		printf("Invalid number of threads");
+		exit(1);
+	}
+	pthread_t threads[numberOfThreads];
+	
+	if(!strcmp(argv[4], "FIFO")) FIFO = 1;
+	
+	pthread_barrier_init(&myBarrier, NULL, numberOfThreads + 1);
+	
+    int fileNum = 6;
+    
+    if (FIFO) sem_init(&mutex, 0, 1);
+    
+    while(1) {
+      struct arg_struct args;
+      args.host = argv[1];
+      args.portnum = argv[2];
+      args.filename = argv[fileNum - 1];
+      for (int j = 0; j < numberOfThreads; j++) {
+        pthread_create(&threads[j], NULL, getThread, (void *)&args);
+      }
+      
+      if (argc > 6) {
+        if (fileNum == argc) {
+          fileNum = 6;
+        }
+        else {
+          fileNum++;
+        }
+      }
+    }
+    
+    pthread_barrier_destroy(&myBarrier); //never reached just put in for fun.
+    
   return 0;
 }
