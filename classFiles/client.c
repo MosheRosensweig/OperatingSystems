@@ -155,8 +155,5 @@ int main(int argc, char **argv) {
         }
       }
     }
-    
-    //pthread_barrier_destroy(&myBarrier); //never reached just put in for fun.
-    
   return 0;
 }
