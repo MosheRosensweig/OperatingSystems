@@ -12,7 +12,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
-#include <sched.h>
+#include <semaphore.h>
 #define VERSION 23
 #define BUFSIZE 8096
 #define ERROR      42
@@ -20,17 +20,28 @@
 #define FORBIDDEN 403
 #define NOTFOUND  404
 
+//---------------
+//  Micah Code
+// ------------------
+
+sem_t mutex;
+sem_t emptySlots;
+sem_t fullSlots;
+
+//NOTE: I changed the code to semaphore version and deleted (I think)
+//all obsolete code. I did not delete obsolete comments because that's
+//a bigger job. Primary edits were in the buffer methods but the clean up
+//was everywhere. The buffer methods currently won't work because they need
+//to implement scanning for slots.
+
+
 //-------------------------------------//
 //			Moshe Written Code	  	   //
 //-------------------------------------//
 
 //THREAD SETUP
 pthread_t * threads;
-int * threadSwitch; //determine if threads should be work or not
 int maxNumThreads;
-int numberOfChildThreadsInUse = 0;
-int nextAvaliableThread = 0;
-int threadSetUp = 0; //see child for how it's used
 
 //BUFFER SETUP - for now just FIFO
 #define ANY 0
@@ -55,8 +66,6 @@ int buffers;//number of buffers
 //TODO implement these
 struct request_Struct parseInput(socketfd, hit);
 void putIntoBuffer(void * input, int schedule);
-int getNextAvailableThread();
-void runChild(int listenfd, int childNum);//Not sure if we still need this - based on semaphores
 struct request_Struct takeFromBuffer(); //TODO this needs to be done right
 //-------------------------------------//
 struct {
@@ -107,11 +116,7 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 /* this is a child web server process, so we can exit on errors */
 void * web(void * input)
 {
-	int threadNum = threadSetUp++; //label this thread
 	while(1){
-	while(threadSwitch[threadNum] == 0) sched_yield();//TODO change this to semaphore stuff
-	//GET FROM BUFFER
-	//TODO get this information - int fd, int hit
 	struct request_Struct bufToUse = takeFromBuffer();
 	int fd  = bufToUse.file_fd;
 	int hit = bufToUse.hit;
@@ -183,7 +188,6 @@ void * web(void * input)
 	sleep(1);	/* allow socket to drain before signalling the socket is closed */
 	close(fd);
 	//TODO - implement semaphore version of the waiting... or my old version works too
-	threadSwitch[threadNum] = 0; //turn off the thread
 	}//end of while loop
 	return NULL;
 }
@@ -201,22 +205,25 @@ void putIntoBuffer(void * input, int schedule)
 {
 	//TODO - Manage schedualing
 	struct request_Struct *newBuf = input;
-	if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
-	buffer_Structs[putInBuff++] = *newBuf;
+	
+	sem_wait(&mutex); //Check if can acess critical reigion.
+	sem_wait(&emptySlots); //See if can lower the number of empty spots. (i.e. not equal 0)
+	buffer_Structs[putInBuff++] = *newBuf; //TODO it needs to scan for open slots.
+	sem_post(&fullSlots); //Raise the number of full slots.
+	sem_post(&mutex); //Indicate that someone else can get it.
 }
 
 struct request_Struct takeFromBuffer()
 {
 	//TODO - Manage scheduling
-	if(takeFromBuff == buffers) takeFromBuff = 0; // make array into circular queue
+	
+	sem_wait(&mutex); //See comments from putIntoBuffer
+	sem_wait(&fullSlots);
 	struct request_Struct bufToUse = buffer_Structs[takeFromBuff++];
+	//TODO Make this actually scan and find the right thing.
+	sem_post(&emptySlots);
+	
 	return bufToUse;
-}
-
-void runChild(int listenfd, int childNum)
-{
-	(void)close(listenfd);//TODO check if this is right
-	threadSwitch[childNum] = 1; //turn on the child
 }
 
 int main(int argc, char **argv)
@@ -281,7 +288,6 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 	threads		 = malloc(sizeof(pthread_t) * maxNumThreads);
-	threadSwitch = malloc(sizeof(int ) 		* maxNumThreads);
 	//BUFFER SETUP
 	buffers = atoi(argv[4]);
 	if(buffers < 1){ 
@@ -300,6 +306,12 @@ int main(int argc, char **argv)
 	}
 	//See older code for a diff. way to do buffers
 	buffer_Structs = malloc(sizeof(struct request_Struct) * buffers);
+	
+	//MICAH ADDED CODE
+	sem_init(&mutex, 0, 1);
+	sem_init(&emptySlots, 0, buffers);
+	sem_init(&fullSlots, 0, 0);
+	
 	//------------------------------------------//
 	//	 End: Moshe's Edits to input scanning	//
 	//------------------------------------------//
@@ -313,7 +325,6 @@ int main(int argc, char **argv)
 		
 	//START ALL THE THREADS
 	for(int j = 0; j < maxNumThreads; j++){
-		threadSwitch[j] = 0;//start thread in off position
 		int status;
 		if((status = pthread_create(&threads[j], NULL, web, NULL)) != 0)
 			logger(ERROR,"system call","pthread_create",0);
@@ -334,14 +345,9 @@ int main(int argc, char **argv)
 
 		//PARSE INPUT
 		struct request_Struct newReq = parseInput(socketfd, hit);
-		//TODO   lock the buffer
 		putIntoBuffer((void *)&newReq, schedule);
-		//TODO unlock the buffer
 		//START WORKER CHILD THREAD
-		int availableThreadNum = getNextAvailableThread();
-		runChild(listenfd, availableThreadNum);
-		//REPEAT
-		sleep(2);
+		sleep(2); //TODO Why the sleep, I know it's a question. 
 		/*	
 		if((pid = fork()) < 0) {
 			logger(ERROR,"system call","fork",0);
