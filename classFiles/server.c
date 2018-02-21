@@ -175,12 +175,12 @@ struct request_Struct parseInput(int fd, int hit)
 	/*
 	 * Attempting to decouple things a bit - hopefully this works
 	 */
-	void putIntoBuffer(void * input, int schedule){
-		//TODO - Manage schedualing
-		struct request_Struct *newBuf = input;
-		if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
-		buffer_Structs[putInBuff++] = *newBuf;
-	}
+void putIntoBuffer(void * input, int schedule){
+    //TODO - Manage schedualing
+    struct request_Struct *newBuf = input;
+    if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
+    buffer_Structs[putInBuff++] = *newBuf;
+}
 
 struct request_Struct takeFromBuffer()
 {
@@ -253,19 +253,7 @@ int main(int argc, char **argv)
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
 
 	if( argc < 6  || argc > 6 || !strcmp(argv[1], "-?") ) {
-		(void)printf("hint: nweb Port-Number Top-Directory\t\tversion %d\n\n"
-	"\tnweb is a small and very safe mini web server\n"
-	"\tnweb only servers out file/web pages with extensions named below\n"
-	"\t and only from the named directory or its sub-directories.\n"
-	"\tThere is no fancy features = safe and secure.\n\n"
-	"\tExample: nweb 8181 /home/nwebdir &\n\n"
-	"\tOnly Supports:", VERSION);
-		for(i=0;extensions[i].ext != 0;i++)
-			(void)printf(" %s",extensions[i].ext);
-
-		(void)printf("\n\tNot Supported: URLs including \"..\", Java, Javascript, CGI\n"
-	"\tNot Supported: directories / /etc /bin /lib /tmp /usr /dev /sbin \n"
-	"\tNo warranty given or implied\n\tNigel Griffiths nag@uk.ibm.com\n"  );
+		(void)printf("USAGE: ./server [portnum] [folder] [threads] [buffers] [schedalg] &");
 		exit(0);
 	}
 	if( !strncmp(argv[2],"/"   ,2 ) || !strncmp(argv[2],"/etc", 5 ) ||
