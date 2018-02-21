@@ -1,4 +1,5 @@
-//Updated 6:48 Sunday
+//Updated 12:46
+//ServerChangeToWeb
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -22,11 +23,6 @@
 //-------------------------------------//
 //			Moshe Written Code	  	   //
 //-------------------------------------//
-struct arg_struct {
-    int listenfd;
-    int threadNumber;
-}; 
-void putIntoBuffer(void * input, int schedule);
 
 //THREAD SETUP
 pthread_t * threads;
@@ -41,10 +37,13 @@ int threadSetUp = 0; //see child for how it's used
 #define FIFO 1
 #define HPIC 2
 #define HPHC 3
+// The request struct now only needs to hold the fd and the hit number
+// So when the child thread takes it out it can get access to that info
+// I'm also storing the file - type even though we only need to know
+// that in order to parse it, we won't need it afterwards, but for now
+// why not
 struct request_Struct{
-	char * buffer;
 	int file_fd;
-	int fd;
 	int hit;
 	char * fstr;//file extension ex: .txt
 };
@@ -53,6 +52,12 @@ int putInBuff = 0;
 int takeFromBuff = 0;
 int buffers;//number of buffers
 
+//TODO implement these
+struct request_Struct parseInput(socketfd, hit);
+void putIntoBuffer(void * input, int schedule);
+int getNextAvailableThread();
+void runChild(int listenfd, int childNum);//Not sure if we still need this - based on semaphores
+struct request_Struct takeFromBuffer(); //TODO this needs to be done right
 //-------------------------------------//
 struct {
 	char *ext;
@@ -100,8 +105,17 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 }
 
 /* this is a child web server process, so we can exit on errors */
-struct request_Struct parseInput(int fd, int hit)
+void * web(void * input)
 {
+	int threadNum = threadSetUp++; //label this thread
+	while(1){
+	while(threadSwitch[threadNum] == 0) sched_yield();//TODO change this to semaphore stuff
+	//GET FROM BUFFER
+	//TODO get this information - int fd, int hit
+	struct request_Struct bufToUse = takeFromBuffer();
+	int fd  = bufToUse.file_fd;
+	int hit = bufToUse.hit;
+	
 	int j, file_fd, buflen;
 	long i, ret, len;
 	char * fstr;
@@ -139,7 +153,7 @@ struct request_Struct parseInput(int fd, int hit)
 	fstr = (char *)0;
 	for(i=0;extensions[i].ext != 0;i++) {
 		len = strlen(extensions[i].ext);
-		if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) { //Compare the end of the string i.e the file extension
+		if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
 			fstr =extensions[i].filetype;
 			break;
 		}
@@ -149,38 +163,47 @@ struct request_Struct parseInput(int fd, int hit)
 	if(( file_fd = open(&buffer[5],O_RDONLY)) == -1) {  /* open the file for reading */
 		logger(NOTFOUND, "failed to open file",&buffer[5],fd);
 	}
+	logger(LOG,"SEND",&buffer[5],hit);
+	len = (long)lseek(file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
+	      (void)lseek(file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
+          (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, fstr); /* Header + a blank line */
+	logger(LOG,"Header",buffer,hit);
+	dummy = write(fd,buffer,strlen(buffer));
 	
-	//--------------------------------------------------//
-	//	Here's Where I step into the Critical Region	//
-	//--------------------------------------------------//
-	// 1] Put the info into the buffer Based on scheduling
-	// 2] Take out of the buffer based on scheduling
-	// 3] Exit the critical Region
-	
-	//PUT INTO BUFFER
+    /* Send the statistical headers described in the paper, example below
+    
+    (void)sprintf(buffer,"X-stat-req-arrival-count: %d\r\n", xStatReqArrivalCount);
+	dummy = write(fd,buffer,strlen(buffer));
+    */
+    
+    /* send file in 8KB block - last block may be smaller */
+	while (	(ret = read(file_fd, buffer, BUFSIZE)) > 0 ) {
+		dummy = write(fd,buffer,ret);
+	}
+	sleep(1);	/* allow socket to drain before signalling the socket is closed */
+	close(fd);
+	//TODO - implement semaphore version of the waiting... or my old version works too
+	threadSwitch[threadNum] = 0; //turn off the thread
+	}//end of while loop
+	return NULL;
+}
+
+//--------------------------//
+//----- Moshe's Methods ----//
+//--------------------------//
+struct request_Struct parseInput(int fd, int hit)
+{
 	struct request_Struct newBuf;
-	newBuf.buffer = buffer;
-	newBuf.file_fd = file_fd;
-	newBuf.fd = fd;
-	newBuf.hit = hit;
-	newBuf.fstr = fstr;
-	/* Moved this to another method - hopefully it works
-	if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
-	buffer_Structs[putInBuff++] = newBuf;
-	*/
 	return newBuf;
-	//Above this is called from the parent
-	}
-	
-	/*
-	 * Attempting to decouple things a bit - hopefully this works
-	 */
-	void putIntoBuffer(void * input, int schedule){
-		//TODO - Manage schedualing
-		struct request_Struct *newBuf = input;
-		if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
-		buffer_Structs[putInBuff++] = *newBuf;
-	}
+}
+
+void putIntoBuffer(void * input, int schedule)
+{
+	//TODO - Manage schedualing
+	struct request_Struct *newBuf = input;
+	if(putInBuff == buffers) putInBuff = 0; // make array into circular queue
+	buffer_Structs[putInBuff++] = *newBuf;
+}
 
 struct request_Struct takeFromBuffer()
 {
@@ -190,64 +213,15 @@ struct request_Struct takeFromBuffer()
 	return bufToUse;
 }
 
-/*
- * The child thread code
- */
-void * child(void * input){ 
-	int threadNum = threadSetUp++;
-	while(1){
-		while(threadSwitch[threadNum] == 0) sched_yield();
-		long len, ret;
-		//TAKE FROM BUFFER
-		//TODO LOCK THIS
-		struct request_Struct bufToUse = takeFromBuffer();
-		//TODO UNLOCK THIS
-
-		// Done with critical region //
-	
-		logger(LOG,"SEND",&bufToUse.buffer[5],bufToUse.hit);
-		len = (long)lseek(bufToUse.file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
-	   	   (void)lseek(bufToUse.file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
-      	    (void)sprintf(bufToUse.buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, bufToUse.fstr); /* Header + a blank line */
-		logger(LOG,"Header",bufToUse.buffer,bufToUse.hit);
-		dummy = write(bufToUse.fd,bufToUse.buffer,strlen(bufToUse.buffer));
-  	  /* Send the statistical headers described in the paper, example below
-    
-  	  (void)sprintf(buffer,"X-stat-req-arrival-count: %d\r\n", xStatReqArrivalCount);
-		dummy = write(fd,buffer,strlen(buffer));
-  	  */
-    
-   	 /* send file in 8KB block - last block may be smaller */
-		while (	(ret = read(bufToUse.file_fd, bufToUse.buffer, BUFSIZE)) > 0 ) {
-			dummy = write(bufToUse.fd,bufToUse.buffer,ret);
-		}
-		sleep(1);	/* allow socket to drain before signalling the socket is closed */
-		close(bufToUse.fd);
-		//exit(1); //this is no longer a process so we cannot exit
-		threadSwitch[threadNum] = 0; //turn off the thread
-	}
-	return NULL;
-}
-
-void runChild(int listenfd, int childNum){
+void runChild(int listenfd, int childNum)
+{
 	(void)close(listenfd);//TODO check if this is right
 	threadSwitch[childNum] = 1; //turn on the child
 }
 
-/*
- * If there are no free threads, yield
- * If there are free threads, return the next one
- */
-int getNextAvailableThread(){ //TODO redo by scanning the threadSwitch stuff
-	while(numberOfChildThreadsInUse == maxNumThreads) sched_yield();
-	int next = nextAvaliableThread++%maxNumThreads;
-	numberOfChildThreadsInUse++;
-	return next;
-}
-
 int main(int argc, char **argv)
 {
-	int i, port, /*pid,*/ listenfd, socketfd, hit;
+	int i, port, listenfd, socketfd, hit;
 	socklen_t length;
 	static struct sockaddr_in cli_addr; /* static = initialised to zeros */
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
@@ -336,24 +310,18 @@ int main(int argc, char **argv)
 		logger(ERROR,"system call","bind",0);
 	if( listen(listenfd,64) <0)
 		logger(ERROR,"system call","listen",0);
-	
-			
+		
 	//START ALL THE THREADS
 	for(int j = 0; j < maxNumThreads; j++){
 		threadSwitch[j] = 0;//start thread in off position
 		int status;
-		if((status = pthread_create(&threads[j], NULL, child, NULL)) != 0)
+		if((status = pthread_create(&threads[j], NULL, web, NULL)) != 0)
 			logger(ERROR,"system call","pthread_create",0);
 	}
-	
-	//THE MAIN LOOP
 	for(hit=1; ;hit++) {
-	length = sizeof(cli_addr);
-	if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0){
-		logger(ERROR,"system call","accept",0);
-	}
-		
-//----> Look Here TO Make Changes	
+		length = sizeof(cli_addr);
+		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
+			logger(ERROR,"system call","accept",0);	
 		//------------------//
 		//		Plan		//
 		//------------------//
@@ -374,15 +342,17 @@ int main(int argc, char **argv)
 		runChild(listenfd, availableThreadNum);
 		//REPEAT
 		sleep(2);
+		/*	
+		if((pid = fork()) < 0) {
+			logger(ERROR,"system call","fork",0);
+		}
+		else {
+			if(pid == 0) { 	// child 
+				(void)close(listenfd);
+				web(socketfd,hit); // never returns 
+			} else { 	// parent 
+				(void)close(socketfd);
+			}
+		}*/
 	}
 }
-
-
-
-
-/*
-Questions I still need answers for:
-1]	What "close"ing should I do in the children. Is that a remnant of multiprocessing code
-	or is it still שייך?
-2] 
-*/
