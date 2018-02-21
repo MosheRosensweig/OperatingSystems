@@ -91,21 +91,19 @@ void * getThread(void * input){
     return NULL;
   
   }
-		
-	printf("\n\nThread #%p\n\n", (void *) pthread_self());
-	fflush(stdout);
-    
-    //TODO Possible bad: FIFO doesn't ensure that the FIRST thread is the FIRST thread.
-    //I'm assuming that they each reach this position in order.
     
     GET(clientfd, args->filename);
 
     if (FIFO) sem_post(&mutex);
     pthread_barrier_wait(&myBarrier);
     
+    printf("\n\nThread #%p\n\n", (void *) pthread_self());
+	fflush(stdout); //TODO possibly remove this flush. 
+    
     char buf[BUF_SIZE];
     while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
     fputs(buf, stdout);
+    fflush(stdout);
     memset(buf, 0, BUF_SIZE);
     }
     
