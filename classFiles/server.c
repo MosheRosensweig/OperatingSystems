@@ -253,7 +253,7 @@ int main(int argc, char **argv)
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
 
 	if( argc < 6  || argc > 6 || !strcmp(argv[1], "-?") ) {
-		(void)printf("USAGE: ./server [portnum] [folder] [threads] [buffers] [schedalg] &");
+		(void)printf("USAGE: ./server [portnum] [folder] [threads] [buffers] [schedalg] &\n");
 		exit(0);
 	}
 	if( !strncmp(argv[2],"/"   ,2 ) || !strncmp(argv[2],"/etc", 5 ) ||
