@@ -269,7 +269,7 @@ void putIntoBuffer(void * input, int schedule)
  */
 struct request_Struct takeFromBuffer()
 {
-	//TODO - Manage scheduling
+	//TODO - Manage scheduling 
 	sem_wait(&mutex); 								//See comments from putIntoBuffer
 	sem_wait(&fullSlots);
 	struct request_Struct bufToUse;
