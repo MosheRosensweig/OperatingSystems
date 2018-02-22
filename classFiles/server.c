@@ -1,5 +1,4 @@
-//Updated 12:46
-//ServerChangeToWeb
+//Updated 3:05 - This is to test the sever on my own
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
