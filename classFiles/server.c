@@ -207,29 +207,42 @@ void * web(void * input)
  */
 struct request_Struct parseInput(int fd, int hit)
 {
-	//PARSE INPUT - OPEN THE FD AND READ THE FIRST LINE
-		//TODO Micah, figure this out
-	//CHECK WHAT FILE TYPE IT IS
-		/* This is code from the web method - is it helpful?
-		// work out the file type and check we support it 
-		buflen=strlen(buffer);
-		fstr = (char *)0;
-		for(i=0;extensions[i].ext != 0;i++) {
-			len = strlen(extensions[i].ext);
-			if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
-				fstr =extensions[i].filetype;
-				break;
-			}
-		}*/
-	//IF THE FILE TYPE IS NOT SUPPORTED CALL
-		//TODO - implement this line of code also take from the web method
-	//if(fstr == 0) logger(FORBIDDEN,"file extension type not supported",buffer,fd);
-	//PUT IT INTO A REQUEST
 	struct request_Struct newBuf;
 	newBuf.file_fd = fd;
 	newBuf.hit = hit;
-	//TODO - fix this
-	//newBuf.fstr = ;// 0 if it's an htlm; 1 if it's a picture
+	
+	static char buffer[BUFSIZE]; //could be smaller.
+	int ret, buflen, len, i, j;
+	j = 0;
+	char* fstr;
+	
+	while ((ret = read(fd, buffer, 1))) {
+	    if (!strncmp(buffer + (++j), "\n", 1)) {
+	        break;
+	    }
+	}
+	
+	if(ret == 0 || ret == -1) {	/* read failure stop now */
+		logger(FORBIDDEN,"failed to read browser request","",fd);
+	}
+	
+	buflen=strlen(buffer);
+	fstr = (char *)0;
+	for(i=0;extensions[i].ext != 0;i++) {
+		len = strlen(extensions[i].ext);
+		if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
+			fstr =extensions[i].filetype;
+			if (i <= 4) {
+			    newBuf.fstr = 1; //It's an image.
+			}
+			else {
+			    newBuf.fstr = 0;
+			}
+			break;
+		}
+	}
+	if(fstr == 0) logger(FORBIDDEN,"file extension type not supported",buffer,fd);
+    
 	return newBuf;
 }
 
@@ -318,19 +331,7 @@ int main(int argc, char **argv)
 	static struct sockaddr_in serv_addr; /* static = initialised to zeros */
 
 	if( argc < 6  || argc > 6 || !strcmp(argv[1], "-?") ) {
-		(void)printf("hint: nweb Port-Number Top-Directory\t\tversion %d\n\n"
-	"\tnweb is a small and very safe mini web server\n"
-	"\tnweb only servers out file/web pages with extensions named below\n"
-	"\t and only from the named directory or its sub-directories.\n"
-	"\tThere is no fancy features = safe and secure.\n\n"
-	"\tExample: nweb 8181 /home/nwebdir &\n\n"
-	"\tOnly Supports:", VERSION);
-		for(i=0;extensions[i].ext != 0;i++)
-			(void)printf(" %s",extensions[i].ext);
-
-		(void)printf("\n\tNot Supported: URLs including \"..\", Java, Javascript, CGI\n"
-	"\tNot Supported: directories / /etc /bin /lib /tmp /usr /dev /sbin \n"
-	"\tNo warranty given or implied\n\tNigel Griffiths nag@uk.ibm.com\n"  );
+		(void)printf("USAGE:./server [portnum] [folder] [threads] [buffers] [schedalg] &\n");
 		exit(0);
 	}
 	if( !strncmp(argv[2],"/"   ,2 ) || !strncmp(argv[2],"/etc", 5 ) ||
