@@ -48,6 +48,7 @@ int maxNumThreads;
 #define FIFO 1
 #define HPIC 2
 #define HPHC 3
+int schedule;
 // The request struct now only needs to hold the fd and the hit number
 // So when the child thread takes it out it can get access to that info
 // I'm also storing the file - type even though we only need to know
@@ -64,6 +65,8 @@ int putInBuff		  = 0;
 int takeFromBuff	  = 0;
 int putInPicBuff	  = 0;
 int takeFromPicBuff	  = 0;
+int numOfReqsInBuf 	  = 0; //These two are only needed to speed up HPIC/HPHC, but technically the
+int numOfReqsInPicBuf = 0; //semaphore is enough. These are basically queue.size() in java terms
 int buffers;//number of buffers
 
 //TODO implement these
@@ -231,7 +234,7 @@ struct request_Struct parseInput(int fd, int hit)
 }
 
 /*
- * Take the request, based on scheduling, find an empty spot and put this in the buffer
+ * Take the request, and based on scheduling, find an empty spot and put it in the buffer
  * In event of HPIC/HPHC, even though I have two buffers of size[buffer], the semaphore
  * will make sure I don't put in too many jobs across both buffers
  * How do I know which is the next available buffer? See code, it uses two pointers...
@@ -241,31 +244,69 @@ void putIntoBuffer(void * input, int schedule)
 {
 	//TODO - Manage schedualing
 	struct request_Struct *newBuf = input;
-	sem_wait(&mutex); 						//Check if can acess critical reigion.
-	sem_wait(&emptySlots); 					//See if can lower the number of empty spots. (i.e. not equal 0)
-	struct request_Struct req = *newBuf; 	//deference the request
+	sem_wait(&mutex); 								//Check if can acess critical reigion.
+	sem_wait(&emptySlots); 							//See if can lower the number of empty spots. (i.e. not equal 0)
+	struct request_Struct req = *newBuf; 			//deference the request
 	if(schedule == ANY || schedule == FIFO || req.fstr == 0){
 		//If it's non-priority or it's HPIC/HPHC, but it's an html
 		buffer_Structs[putInBuff%buffers] = req;
-		putInBuff++;//to be a bit clearer 
+		putInBuff++;								//separated to be a bit clearer 
+		numOfReqsInBuf++; 							//queue.size++
 	}
 	else{ //it's HPIC/HPHC and it's a picture
 		buffer_StructsPIC[putInPicBuff%buffers] = req;
 		putInPicBuff++;
+		numOfReqsInPicBuf++;
 	}
-	sem_post(&fullSlots); 					//Raise the number of full slots.
-	sem_post(&mutex);	 					//Indicate that someone else can get it.
-}
+	sem_post(&fullSlots); 							//Raise the number of full slots.
+	sem_post(&mutex);	 							//Indicate that someone else can get it.
+}		
 
+/*
+ * Based on scheduling take from buffer
+ * I have the following 2 extra counters: numOfReqsInBuf & numOfReqsInPicBuf so that I 
+ * can quickly do HPIC/HPHC see below
+ */
 struct request_Struct takeFromBuffer()
 {
 	//TODO - Manage scheduling
-	sem_wait(&mutex); //See comments from putIntoBuffer
+	sem_wait(&mutex); 								//See comments from putIntoBuffer
 	sem_wait(&fullSlots);
-	struct request_Struct bufToUse = buffer_Structs[takeFromBuff++];
-	//TODO Make this actually scan and find the right thing.
+	struct request_Struct bufToUse;
+	switch(schedule){
+	case ANY:
+	case FIFO:
+		bufToUse = buffer_Structs[takeFromBuff%buffers];
+		takeFromBuff++; 							//separated for clarity
+		numOfReqsInBuf--;							//queue.size--
+		break;
+	case HPHC: 										//html is prioritized 
+		if(numOfReqsInBuf > 0){
+			bufToUse = buffer_Structs[takeFromBuff%buffers];
+			takeFromBuff++; 							
+			numOfReqsInBuf--;							
+		}
+		else{
+			bufToUse = buffer_Structs[takeFromPicBuff%buffers];
+			takeFromPicBuff++; 							
+			numOfReqsInPicBuf--;
+		}
+		break;
+	case HPIC:										//pictures are prioritized
+		if(numOfReqsInPicBuf > 0){
+			bufToUse = buffer_Structs[takeFromPicBuff%buffers];
+			takeFromPicBuff++; 							
+			numOfReqsInPicBuf--;										
+		}
+		else{
+			bufToUse = buffer_Structs[takeFromBuff%buffers];
+			takeFromBuff++; 							
+			numOfReqsInBuf--;
+		}
+		break;
+	}
 	sem_post(&emptySlots);
-	
+	sem_post(&mutex);//TODO confirm that Micah Left this out by accident
 	return bufToUse;
 }
 
@@ -338,7 +379,6 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 	//SCHEDULE  SETUP 
-	int schedule; 
 	if(!strcmp(argv[5], "ANY")) schedule = ANY;
 	else if(!strcmp(argv[5], "FIFO")) schedule = FIFO;
 	else if(!strcmp(argv[5], "HPIC")) schedule = HPIC;
