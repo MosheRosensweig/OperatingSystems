@@ -56,15 +56,18 @@ int maxNumThreads;
 struct request_Struct{
 	int file_fd;
 	int hit;
-	char * fstr;//file extension ex: .txt
+	int fstr;//file extension ex: .txt //0 if html, 1 if picture
 };
-struct request_Struct * buffer_Structs;
-int putInBuff = 0;
-int takeFromBuff = 0;
+struct request_Struct * buffer_Structs;//the only buffer if there no priority, the html buffer if there is
+struct request_Struct * buffer_StructsPIC;//If there is a priority, this is the picture buffer
+int putInBuff		  = 0;
+int takeFromBuff	  = 0;
+int putInPicBuff	  = 0;
+int takeFromPicBuff	  = 0;
 int buffers;//number of buffers
 
 //TODO implement these
-struct request_Struct parseInput(socketfd, hit);
+struct request_Struct parseInput(int socketfd, int hit);
 void putIntoBuffer(void * input, int schedule);
 struct request_Struct takeFromBuffer(); //TODO this needs to be done right
 //-------------------------------------//
@@ -195,28 +198,68 @@ void * web(void * input)
 //--------------------------//
 //----- Moshe's Methods ----//
 //--------------------------//
+
+/*
+ * Find the file type and return 
+ */
 struct request_Struct parseInput(int fd, int hit)
 {
+	//PARSE INPUT - OPEN THE FD AND READ THE FIRST LINE
+		//TODO Micah, figure this out
+	//CHECK WHAT FILE TYPE IT IS
+		/* This is code from the web method - is it helpful?
+		// work out the file type and check we support it 
+		buflen=strlen(buffer);
+		fstr = (char *)0;
+		for(i=0;extensions[i].ext != 0;i++) {
+			len = strlen(extensions[i].ext);
+			if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
+				fstr =extensions[i].filetype;
+				break;
+			}
+		}*/
+	//IF THE FILE TYPE IS NOT SUPPORTED CALL
+		//TODO - implement this line of code also take from the web method
+	//if(fstr == 0) logger(FORBIDDEN,"file extension type not supported",buffer,fd);
+	//PUT IT INTO A REQUEST
 	struct request_Struct newBuf;
+	newBuf.file_fd = fd;
+	newBuf.hit = hit;
+	//TODO - fix this
+	//newBuf.fstr = ;// 0 if it's an htlm; 1 if it's a picture
 	return newBuf;
 }
 
+/*
+ * Take the request, based on scheduling, find an empty spot and put this in the buffer
+ * In event of HPIC/HPHC, even though I have two buffers of size[buffer], the semaphore
+ * will make sure I don't put in too many jobs across both buffers
+ * How do I know which is the next available buffer? See code, it uses two pointers...
+ * The takeFromBuff will never pass the putInBuff because of the semaphores
+ */
 void putIntoBuffer(void * input, int schedule)
 {
 	//TODO - Manage schedualing
 	struct request_Struct *newBuf = input;
-	
-	sem_wait(&mutex); //Check if can acess critical reigion.
-	sem_wait(&emptySlots); //See if can lower the number of empty spots. (i.e. not equal 0)
-	buffer_Structs[putInBuff++] = *newBuf; //TODO it needs to scan for open slots.
-	sem_post(&fullSlots); //Raise the number of full slots.
-	sem_post(&mutex); //Indicate that someone else can get it.
+	sem_wait(&mutex); 						//Check if can acess critical reigion.
+	sem_wait(&emptySlots); 					//See if can lower the number of empty spots. (i.e. not equal 0)
+	struct request_Struct req = *newBuf; 	//deference the request
+	if(schedule == ANY || schedule == FIFO || req.fstr == 0){
+		//If it's non-priority or it's HPIC/HPHC, but it's an html
+		buffer_Structs[putInBuff%buffers] = req;
+		putInBuff++;//to be a bit clearer 
+	}
+	else{ //it's HPIC/HPHC and it's a picture
+		buffer_StructsPIC[putInPicBuff%buffers] = req;
+		putInPicBuff++;
+	}
+	sem_post(&fullSlots); 					//Raise the number of full slots.
+	sem_post(&mutex);	 					//Indicate that someone else can get it.
 }
 
 struct request_Struct takeFromBuffer()
 {
 	//TODO - Manage scheduling
-	
 	sem_wait(&mutex); //See comments from putIntoBuffer
 	sem_wait(&fullSlots);
 	struct request_Struct bufToUse = buffer_Structs[takeFromBuff++];
@@ -305,8 +348,8 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 	//See older code for a diff. way to do buffers
-	buffer_Structs = malloc(sizeof(struct request_Struct) * buffers);
-	
+	buffer_Structs 	  = malloc(sizeof(struct request_Struct) * buffers);
+	buffer_StructsPIC = malloc(sizeof(struct request_Struct) * buffers);
 	//MICAH ADDED CODE
 	sem_init(&mutex, 0, 1);
 	sem_init(&emptySlots, 0, buffers);
@@ -344,7 +387,7 @@ int main(int argc, char **argv)
 		// 4] Start again
 
 		//PARSE INPUT
-		struct request_Struct newReq = parseInput(socketfd, hit);
+		struct request_Struct newReq = parseInput(socketfd, hit); //TODO make this work!
 		putIntoBuffer((void *)&newReq, schedule);
 		//START WORKER CHILD THREAD
 		sleep(2); //TODO Why the sleep, I know it's a question. 
