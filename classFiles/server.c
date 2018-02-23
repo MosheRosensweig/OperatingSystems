@@ -1,5 +1,6 @@
 //Updated 3:12 Friday
 //Changes: (1) Added stuff to request_Struct (2) changed header to parseInput
+//Changes: Finished parser...
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -135,9 +136,6 @@ void * web(void * input)
 	long i, len;
 	char * fstr;
 	//Moved some code (I erased it) from web to parseInput
-	for(i=0;i<ret;i++)	/* remove CF and LF characters */
-		if(buffer[i] == '\r' || buffer[i] == '\n')
-			buffer[i]='*';
 	logger(LOG,"request",buffer,hit);
 	if( strncmp(buffer,"GET ",4) && strncmp(buffer,"get ",4) ) {
 		logger(FORBIDDEN,"Only simple GET operation supported",buffer,fd);
@@ -209,7 +207,7 @@ struct request_Struct parseInput(int fd, int hit)
 	newBuf.file_fd 	= fd;
 	newBuf.hit 		= hit;
 	//READ FROM FD
-	long ret;
+	long ret, len;
 	char * buffer = calloc(BUFSIZE+1, sizeof(char));
 	//static char buffer[BUFSIZE+1]; 	// static so zero filled /
 	ret =read(fd,buffer,BUFSIZE); 		// read Web request in one go /
@@ -221,30 +219,26 @@ struct request_Struct parseInput(int fd, int hit)
 	else buffer[0]=0;
 	//STORE THE WHOLE REQUEST IN THE request_Struct
 	newBuf.tempBuffer = buffer;
-	newBuf.ret = ret;
+	newBuf.ret 		  = ret;
 	
 	//TODO - Micah - parse the buffer for the first line of code and find the file type
 	//newBuf.fstr = 0; for html, newBuf.fstr = 1; for picture
-	
-	/*
-	buflen=strlen(buffer);
-	fstr = (char *)0;
+	int i;
+	for(i=0;i<ret;i++)	/* remove CF and LF characters */
+		if(buffer[i] == '\r' || buffer[i] == '\n')
+			buffer[i]='*';
+	int buflen=strlen(buffer);
+	char * fstr = (char *)0;
 	for(i=0;extensions[i].ext != 0;i++) {
 		len = strlen(extensions[i].ext);
-		if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
+		if(!strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
 			fstr =extensions[i].filetype;
-			if (i <= 4) {
-			    newBuf.fstr = 1; //It's an image.
-			}
-			else {
-			    newBuf.fstr = 0;
-			}
+			newBuf.fstr = (i <= 4) ? 1 : 0;
 			break;
 		}
 	}
 	if(fstr == 0) logger(FORBIDDEN,"file extension type not supported",buffer,fd);
-    */
-    //printf("\nParse End!\n"); fflush(stdout);
+    
 	return newBuf;
 }
 
@@ -272,7 +266,6 @@ void putIntoBuffer(struct request_Struct * input, int schedule)
 		numOfReqsInPicBuf++;
 	}
 	sem_post(&fullSlots); 							//Raise the number of full slots.
-	//sem_post(&mutex);	 							//Indicate that someone else can get it.
 }		
 
 /*
@@ -433,7 +426,7 @@ int main(int argc, char **argv)
 		// 4] Start again
 
 		//PARSE INPUT
-		struct request_Struct newReq = parseInput(socketfd, hit); //TODO make this work!
-		putIntoBuffer(&newReq, schedule);//TODO - change to req_struct *
+		struct request_Struct newReq = parseInput(socketfd, hit); 
+		putIntoBuffer(&newReq, schedule);
 	}
 }
