@@ -1,4 +1,4 @@
-//Updated 3:05 - This is to test the sever on my own
+//Updated 3:05 - This is to test the sever on my own 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -257,13 +257,15 @@ struct request_Struct parseInput(int fd, int hit)
  * will make sure I don't put in too many jobs across both buffers
  * How do I know which is the next available buffer? See code, it uses two pointers...
  * The takeFromBuff will never pass the putInBuff because of the semaphores
+ *
+ * NOTE: We don't 
  */
 void putIntoBuffer(void * input, int schedule)
 {
 	printf("Beginning of putInBuff number 0\n");
 	//TODO - Manage schedualing
 	struct request_Struct *newBuf = input;
-	sem_wait(&mutex); 								//Check if can acess critical reigion.
+	//sem_wait(&mutex); 								//Check if can acess critical reigion.
 	printf("Beginning of putInBuff number 1\n");
 	sem_wait(&emptySlots); 							//See if can lower the number of empty spots. (i.e. not equal 0)
 	printf("Beginning of putInBuff number 2\n");
@@ -280,7 +282,7 @@ void putIntoBuffer(void * input, int schedule)
 		numOfReqsInPicBuf++;
 	}
 	sem_post(&fullSlots); 							//Raise the number of full slots.
-	sem_post(&mutex);	 							//Indicate that someone else can get it.
+	//sem_post(&mutex);	 							//Indicate that someone else can get it.
 }		
 
 /*
@@ -290,10 +292,10 @@ void putIntoBuffer(void * input, int schedule)
  */
 struct request_Struct takeFromBuffer()
 {
-	//TODO - Manage scheduling 								//See comments from putIntoBuffer
+	//TODO - Manage scheduling 	
+	sem_wait(&mutex);							//See comments from putIntoBuffer
 	sem_wait(&fullSlots);
 	printf("\nTake from start\n");
-	//sem_wait(&mutex);
 	struct request_Struct bufToUse;
 	switch(schedule){
 	case ANY:
@@ -328,7 +330,7 @@ struct request_Struct takeFromBuffer()
 		break;
 	}
 	sem_post(&emptySlots);
-	//sem_post(&mutex);//TODO confirm that Micah Left this out by accident
+	sem_post(&mutex);
 	return bufToUse;
 }
 
@@ -445,18 +447,5 @@ int main(int argc, char **argv)
 		putIntoBuffer((void *)&newReq, schedule);
 		printf("putIntoBuffer Passed!\n");
 		//START WORKER CHILD THREAD
-		//sleep(2); //TODO Why the sleep, I know it's a question. 
-		/*	
-		if((pid = fork()) < 0) {
-			logger(ERROR,"system call","fork",0);
-		}
-		else {
-			if(pid == 0) { 	// child 
-				(void)close(listenfd);
-				web(socketfd,hit); // never returns 
-			} else { 	// parent 
-				(void)close(socketfd);
-			}
-		}*/
 	}
 }
