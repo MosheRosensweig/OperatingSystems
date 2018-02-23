@@ -1,4 +1,5 @@
-//Updated 3:05 - This is to test the sever on my own
+//Updated 3:12 Friday
+//Changes: (1) Added stuff to request_Struct (2) changed header to parseInput
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -57,6 +58,8 @@ struct request_Struct{
 	int file_fd;
 	int hit;
 	int fstr;//file extension ex: .txt //0 if html, 1 if picture
+	char * tempBuffer;
+	long ret;
 };
 struct request_Struct * buffer_Structs;//the only buffer if there no priority, the html buffer if there is
 struct request_Struct * buffer_StructsPIC;//If there is a priority, this is the picture buffer
@@ -70,7 +73,7 @@ int buffers;//number of buffers
 
 //TODO implement these
 struct request_Struct parseInput(int socketfd, int hit);
-void putIntoBuffer(void * input, int schedule);
+void putIntoBuffer(struct request_Struct * input, int schedule);
 struct request_Struct takeFromBuffer(); //TODO this needs to be done right
 //-------------------------------------//
 struct {
@@ -123,21 +126,15 @@ void * web(void * input)
 {
 	while(1){
 	struct request_Struct bufToUse = takeFromBuffer();
-	int fd  = bufToUse.file_fd;
-	int hit = bufToUse.hit;
+	int fd 			= bufToUse.file_fd;
+	int hit 		= bufToUse.hit;
+	char * buffer 	= bufToUse.tempBuffer;
+	long ret 		= bufToUse.ret;
 	
 	int j, file_fd, buflen;
-	long i, ret, len;
+	long i, len;
 	char * fstr;
-	static char buffer[BUFSIZE+1]; /* static so zero filled */
-
-	ret =read(fd,buffer,BUFSIZE); 	/* read Web request in one go */
-	if(ret == 0 || ret == -1) {	/* read failure stop now */
-		logger(FORBIDDEN,"failed to read browser request","",fd);
-	}
-	if(ret > 0 && ret < BUFSIZE)	/* return code is valid chars */
-		buffer[ret]=0;		/* terminate the buffer */
-	else buffer[0]=0;
+	//Moved some code (I erased it) from web to parseInput
 	for(i=0;i<ret;i++)	/* remove CF and LF characters */
 		if(buffer[i] == '\r' || buffer[i] == '\n')
 			buffer[i]='*';
@@ -192,6 +189,7 @@ void * web(void * input)
 	}
 	sleep(1);	/* allow socket to drain before signalling the socket is closed */
 	close(fd);
+	free(buffer); // I think this is right
 	//TODO - implement semaphore version of the waiting... or my old version works too
 	}//end of while loop
 	return NULL;
@@ -208,28 +206,27 @@ struct request_Struct parseInput(int fd, int hit)
 {
 	//printf("\nParse Begin!\n"); fflush(stdout);
 	struct request_Struct newBuf;
-	newBuf.file_fd = fd;
-	newBuf.hit = hit;
-	
-	//TODO fix - Micah's code doesn't work
-	newBuf.fstr = 0;
-	
-	/*
-	static char buffer[BUFSIZE]; //could be smaller.
-	int ret, buflen, len, i, j;
-	j = 0;
-	char* fstr;
-	
-	while ((ret = read(fd, buffer, 1))) {
-	    if (!strncmp(buffer + (++j), "\n", 1)) {
-	        break;
-	    }
-	}
-	
-	if(ret == 0 || ret == -1) {	//read failure stop now 
+	newBuf.file_fd 	= fd;
+	newBuf.hit 		= hit;
+	//READ FROM FD
+	long ret;
+	char * buffer = calloc(BUFSIZE+1, sizeof(char));
+	//static char buffer[BUFSIZE+1]; 	// static so zero filled /
+	ret =read(fd,buffer,BUFSIZE); 		// read Web request in one go /
+	if(ret == 0 || ret == -1) {			// read failure stop now /
 		logger(FORBIDDEN,"failed to read browser request","",fd);
 	}
+	if(ret > 0 && ret < BUFSIZE)		// return code is valid chars /
+		buffer[ret]=0;					// terminate the buffer /
+	else buffer[0]=0;
+	//STORE THE WHOLE REQUEST IN THE request_Struct
+	newBuf.tempBuffer = buffer;
+	newBuf.ret = ret;
 	
+	//TODO - Micah - parse the buffer for the first line of code and find the file type
+	//newBuf.fstr = 0; for html, newBuf.fstr = 1; for picture
+	
+	/*
 	buflen=strlen(buffer);
 	fstr = (char *)0;
 	for(i=0;extensions[i].ext != 0;i++) {
@@ -258,16 +255,11 @@ struct request_Struct parseInput(int fd, int hit)
  * How do I know which is the next available buffer? See code, it uses two pointers...
  * The takeFromBuff will never pass the putInBuff because of the semaphores
  */
-void putIntoBuffer(void * input, int schedule)
+void putIntoBuffer(struct request_Struct * input, int schedule)
 {
-	//printf("Beginning of putInBuff number 0\n");
-	//TODO - Manage schedualing
-	struct request_Struct *newBuf = input;
-	//sem_wait(&mutex); 								//Check if can acess critical reigion.
-	//printf("Beginning of putInBuff number 1\n");
+	//TODO - Manage scheduling
+	struct request_Struct req = *input; 			//deference the request
 	sem_wait(&emptySlots); 							//See if can lower the number of empty spots. (i.e. not equal 0)
-	//printf("Beginning of putInBuff number 2\n");
-	struct request_Struct req = *newBuf; 			//deference the request
 	if(schedule == ANY || schedule == FIFO || req.fstr == 0){
 		//If it's non-priority or it's HPIC/HPHC, but it's an html
 		buffer_Structs[putInBuff%buffers] = req;
@@ -442,21 +434,6 @@ int main(int argc, char **argv)
 
 		//PARSE INPUT
 		struct request_Struct newReq = parseInput(socketfd, hit); //TODO make this work!
-		putIntoBuffer((void *)&newReq, schedule);
-		//printf("putIntoBuffer Passed!\n");
-		//START WORKER CHILD THREAD
-		//sleep(2); //TODO Why the sleep, I know it's a question. 
-		/*	
-		if((pid = fork()) < 0) {
-			logger(ERROR,"system call","fork",0);
-		}
-		else {
-			if(pid == 0) { 	// child 
-				(void)close(listenfd);
-				web(socketfd,hit); // never returns 
-			} else { 	// parent 
-				(void)close(socketfd);
-			}
-		}*/
+		putIntoBuffer(&newReq, schedule);//TODO - change to req_struct *
 	}
 }
