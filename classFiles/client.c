@@ -17,6 +17,7 @@ struct arg_struct {
     char* host;
     char* portnum;
     char* filename;
+    int whichThread;
 }; 
 
 pthread_barrier_t myBarrier;
@@ -97,11 +98,17 @@ void * getThread(void * input){
     if (FIFO) sem_post(&mutex);
     pthread_barrier_wait(&myBarrier);
     
-    printf("\n\nThread #%p\n\n", (void *) pthread_self());
-	fflush(stdout); //TODO possibly remove this flush. 
+    //printf("\n\nThread #%p\n\n", (void *) pthread_self());
+    
+    
+    char threadName[100];
+    sprintf(threadName, " --Thread #%d-- ", args->whichThread);
+    
+    int j = 0;
     
     char buf[BUF_SIZE];
     while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
+    if (j++ == 1) fputs(threadName, stdout);
     fputs(buf, stdout);
     fflush(stdout);
     memset(buf, 0, BUF_SIZE);
@@ -141,6 +148,7 @@ int main(int argc, char **argv) {
       args.filename = argv[fileNum - 1];
       for (int j = 0; j < numberOfThreads; j++) {
         if (FIFO) sem_wait(&mutex);
+        args.whichThread = j;
         pthread_create(&threads[j], NULL, getThread, (void *)&args);
       }
       
