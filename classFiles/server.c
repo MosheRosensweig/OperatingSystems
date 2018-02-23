@@ -206,7 +206,7 @@ void * web(void * input)
  */
 struct request_Struct parseInput(int fd, int hit)
 {
-	printf("\nParse Begin!\n"); fflush(stdout);
+	//printf("\nParse Begin!\n"); fflush(stdout);
 	struct request_Struct newBuf;
 	newBuf.file_fd = fd;
 	newBuf.hit = hit;
@@ -247,7 +247,7 @@ struct request_Struct parseInput(int fd, int hit)
 	}
 	if(fstr == 0) logger(FORBIDDEN,"file extension type not supported",buffer,fd);
     */
-    printf("\nParse End!\n"); fflush(stdout);
+    //printf("\nParse End!\n"); fflush(stdout);
 	return newBuf;
 }
 
@@ -260,13 +260,13 @@ struct request_Struct parseInput(int fd, int hit)
  */
 void putIntoBuffer(void * input, int schedule)
 {
-	printf("Beginning of putInBuff number 0\n");
+	//printf("Beginning of putInBuff number 0\n");
 	//TODO - Manage schedualing
 	struct request_Struct *newBuf = input;
-	sem_wait(&mutex); 								//Check if can acess critical reigion.
-	printf("Beginning of putInBuff number 1\n");
+	//sem_wait(&mutex); 								//Check if can acess critical reigion.
+	//printf("Beginning of putInBuff number 1\n");
 	sem_wait(&emptySlots); 							//See if can lower the number of empty spots. (i.e. not equal 0)
-	printf("Beginning of putInBuff number 2\n");
+	//printf("Beginning of putInBuff number 2\n");
 	struct request_Struct req = *newBuf; 			//deference the request
 	if(schedule == ANY || schedule == FIFO || req.fstr == 0){
 		//If it's non-priority or it's HPIC/HPHC, but it's an html
@@ -280,7 +280,7 @@ void putIntoBuffer(void * input, int schedule)
 		numOfReqsInPicBuf++;
 	}
 	sem_post(&fullSlots); 							//Raise the number of full slots.
-	sem_post(&mutex);	 							//Indicate that someone else can get it.
+	//sem_post(&mutex);	 							//Indicate that someone else can get it.
 }		
 
 /*
@@ -291,9 +291,9 @@ void putIntoBuffer(void * input, int schedule)
 struct request_Struct takeFromBuffer()
 {
 	//TODO - Manage scheduling 								//See comments from putIntoBuffer
+	sem_wait(&mutex);
 	sem_wait(&fullSlots);
-	printf("\nTake from start\n");
-	//sem_wait(&mutex);
+	//printf("\nTake from start\n");
 	struct request_Struct bufToUse;
 	switch(schedule){
 	case ANY:
@@ -328,7 +328,7 @@ struct request_Struct takeFromBuffer()
 		break;
 	}
 	sem_post(&emptySlots);
-	//sem_post(&mutex);//TODO confirm that Micah Left this out by accident
+	sem_post(&mutex);
 	return bufToUse;
 }
 
@@ -443,7 +443,7 @@ int main(int argc, char **argv)
 		//PARSE INPUT
 		struct request_Struct newReq = parseInput(socketfd, hit); //TODO make this work!
 		putIntoBuffer((void *)&newReq, schedule);
-		printf("putIntoBuffer Passed!\n");
+		//printf("putIntoBuffer Passed!\n");
 		//START WORKER CHILD THREAD
 		//sleep(2); //TODO Why the sleep, I know it's a question. 
 		/*	
