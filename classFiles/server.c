@@ -206,10 +206,15 @@ void * web(void * input)
  */
 struct request_Struct parseInput(int fd, int hit)
 {
+	printf("\nParse Begin!\n"); fflush(stdout);
 	struct request_Struct newBuf;
 	newBuf.file_fd = fd;
 	newBuf.hit = hit;
 	
+	//TODO fix - Micah's code doesn't work
+	newBuf.fstr = 0;
+	
+	/*
 	static char buffer[BUFSIZE]; //could be smaller.
 	int ret, buflen, len, i, j;
 	j = 0;
@@ -221,7 +226,7 @@ struct request_Struct parseInput(int fd, int hit)
 	    }
 	}
 	
-	if(ret == 0 || ret == -1) {	/* read failure stop now */
+	if(ret == 0 || ret == -1) {	//read failure stop now 
 		logger(FORBIDDEN,"failed to read browser request","",fd);
 	}
 	
@@ -241,7 +246,8 @@ struct request_Struct parseInput(int fd, int hit)
 		}
 	}
 	if(fstr == 0) logger(FORBIDDEN,"file extension type not supported",buffer,fd);
-    
+    */
+    printf("\nParse End!\n"); fflush(stdout);
 	return newBuf;
 }
 
@@ -254,10 +260,13 @@ struct request_Struct parseInput(int fd, int hit)
  */
 void putIntoBuffer(void * input, int schedule)
 {
+	printf("Beginning of putInBuff number 0\n");
 	//TODO - Manage schedualing
 	struct request_Struct *newBuf = input;
 	sem_wait(&mutex); 								//Check if can acess critical reigion.
+	printf("Beginning of putInBuff number 1\n");
 	sem_wait(&emptySlots); 							//See if can lower the number of empty spots. (i.e. not equal 0)
+	printf("Beginning of putInBuff number 2\n");
 	struct request_Struct req = *newBuf; 			//deference the request
 	if(schedule == ANY || schedule == FIFO || req.fstr == 0){
 		//If it's non-priority or it's HPIC/HPHC, but it's an html
@@ -281,9 +290,10 @@ void putIntoBuffer(void * input, int schedule)
  */
 struct request_Struct takeFromBuffer()
 {
-	//TODO - Manage scheduling 
-	sem_wait(&mutex); 								//See comments from putIntoBuffer
+	//TODO - Manage scheduling 								//See comments from putIntoBuffer
 	sem_wait(&fullSlots);
+	printf("\nTake from start\n");
+	//sem_wait(&mutex);
 	struct request_Struct bufToUse;
 	switch(schedule){
 	case ANY:
@@ -318,7 +328,7 @@ struct request_Struct takeFromBuffer()
 		break;
 	}
 	sem_post(&emptySlots);
-	sem_post(&mutex);//TODO confirm that Micah Left this out by accident
+	//sem_post(&mutex);//TODO confirm that Micah Left this out by accident
 	return bufToUse;
 }
 
@@ -349,7 +359,7 @@ int main(int argc, char **argv)
 		return 0; /* parent returns OK to shell */
 	(void)signal(SIGCHLD, SIG_IGN); /* ignore child death */
 	(void)signal(SIGHUP, SIG_IGN); /* ignore terminal hangups */
-	for(i=0;i<32;i++)
+	for(i=2;i<32;i++)//TODO set this back to 0
 		(void)close(i);		/* close open files */
 	(void)setpgrp();		/* break away from process group */
 	logger(LOG,"nweb starting",argv[1],getpid());
@@ -366,6 +376,8 @@ int main(int argc, char **argv)
 	// Old Version: ./server [portnum] [folder] &
 	// New Version: ./server [portnum] [folder] [threads] [buffers] [schedalg] &
 	//THREAD SETUP
+	
+
 	maxNumThreads = atoi(argv[3]);
 	if(maxNumThreads < 1){ 
 		printf("Invalid number of threads");
@@ -387,6 +399,7 @@ int main(int argc, char **argv)
 		printf("Invalid scheduling parameter. Options are: \"ANY\", \"FIFO\", \"HPIC\", \"HPHC\".");
 		exit(1);
 	}
+	
 	//See older code for a diff. way to do buffers
 	buffer_Structs 	  = malloc(sizeof(struct request_Struct) * buffers);
 	buffer_StructsPIC = malloc(sizeof(struct request_Struct) * buffers);
@@ -412,6 +425,7 @@ int main(int argc, char **argv)
 		if((status = pthread_create(&threads[j], NULL, web, NULL)) != 0)
 			logger(ERROR,"system call","pthread_create",0);
 	}
+	
 	for(hit=1; ;hit++) {
 		length = sizeof(cli_addr);
 		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
@@ -429,8 +443,9 @@ int main(int argc, char **argv)
 		//PARSE INPUT
 		struct request_Struct newReq = parseInput(socketfd, hit); //TODO make this work!
 		putIntoBuffer((void *)&newReq, schedule);
+		printf("putIntoBuffer Passed!\n");
 		//START WORKER CHILD THREAD
-		sleep(2); //TODO Why the sleep, I know it's a question. 
+		//sleep(2); //TODO Why the sleep, I know it's a question. 
 		/*	
 		if((pid = fork()) < 0) {
 			logger(ERROR,"system call","fork",0);
