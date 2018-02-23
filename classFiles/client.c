@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <sched.h>
 
 /* Network */
 #include <netdb.h>
@@ -16,8 +17,8 @@
 struct arg_struct {
     char* host;
     char* portnum;
-    char* filename;
-    int whichThread;
+    char* files[2];
+    int hasSecondFile;
 }; 
 
 pthread_barrier_t myBarrier;
@@ -80,41 +81,58 @@ void GET(int clientfd, char *path) {
 }
 
 void * getThread(void * input){
-  struct arg_struct *args = input;
+   struct arg_struct *args = input;
+  
   int clientfd;
-  
-  // Establish connection with <hostname>:<port>
-  clientfd = establishConnection(getHostInfo(args->host, args->portnum));
-  if (clientfd == -1) {
-    fprintf(stderr,
-            "[main:73] Failed to connect to: %s:%s%s \n",
-            args->host, args->portnum, args->filename);
-    return NULL;
-  
-  }
     
-    GET(clientfd, args->filename);
+  char* filename;
+  int fileupto = 0;
+  
+  
+  while(1) {
+      if (FIFO) sem_wait(&mutex);
 
-    if (FIFO) sem_post(&mutex);
-    pthread_barrier_wait(&myBarrier);
+      filename = args->files[fileupto];
+      if (args->hasSecondFile) {
+        fileupto = !fileupto;
+      }
+              
+      // Establish connection with <hostname>:<port>
+      clientfd = establishConnection(getHostInfo(args->host, args->portnum));
+      if (clientfd == -1) {
+        fprintf(stderr,
+                "[main:73] Failed to connect to: %s:%s%s \n",
+                args->host, args->portnum, filename);
+        return NULL;
+  
+      }
     
-    //printf("\n\nThread #%p\n\n", (void *) pthread_self());
+        GET(clientfd, filename);    
+    
+        if (FIFO) sem_post(&mutex);
+        
+        pthread_barrier_wait(&myBarrier);
+        //printf("Hii!\n");
+    
+        //printf("\n\nThread #%p\n\n", (void *) pthread_self());
     
     
-    char threadName[100];
-    sprintf(threadName, " --Thread #%d-- ", args->whichThread);
+        char threadName[100];
+        sprintf(threadName, " --Thread #%p-- ", (void *) pthread_self());
     
-    int j = 0;
+        int j = 0;
     
-    char buf[BUF_SIZE];
-    while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
-    if (j++ == 1) fputs(threadName, stdout);
-    fputs(buf, stdout);
-    fflush(stdout);
-    memset(buf, 0, BUF_SIZE);
+        char buf[BUF_SIZE];
+        while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
+        if (j++ == 1) fputs(threadName, stdout);
+        fputs(buf, stdout);
+        fflush(stdout);
+    
+        memset(buf, 0, BUF_SIZE);
+        }
+    
+        close(clientfd);
     }
-    
-    close(clientfd);
 	return NULL;
 }
 
@@ -135,31 +153,24 @@ int main(int argc, char **argv) {
 	
 	if(!strcmp(argv[4], "FIFO")) FIFO = 1;
 	
-	pthread_barrier_init(&myBarrier, NULL, numberOfThreads + 1);
-	
-    int fileNum = 6;
+	pthread_barrier_init(&myBarrier, NULL, numberOfThreads);
     
     if (FIFO) sem_init(&mutex, 0, 1);
     
-    while(1) {
-      struct arg_struct args;
-      args.host = argv[1];
-      args.portnum = argv[2];
-      args.filename = argv[fileNum - 1];
-      for (int j = 0; j < numberOfThreads; j++) {
-        if (FIFO) sem_wait(&mutex);
-        args.whichThread = j;
-        pthread_create(&threads[j], NULL, getThread, (void *)&args);
-      }
-      
-      if (argc > 6) {
-        if (fileNum == argc) {
-          fileNum = 6;
-        }
-        else {
-          fileNum++;
-        }
-      }
+    struct arg_struct args;
+    args.host = argv[1];
+    args.portnum = argv[2];
+    args.files[0] = argv[5];
+    printf("%s", args.files[0]);
+    args.hasSecondFile = 0; //Probs not needed.
+    if (argc > 6) {
+        args.hasSecondFile = 1;
+        args.files[1] = argv[6];
     }
+    
+    for (int i = 0; i < numberOfThreads; i++) {
+        pthread_create(&threads[i], NULL, getThread, (void*) &args);
+    }
+    while (1) sched_yield();
   return 0;
 }
