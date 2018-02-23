@@ -1,4 +1,4 @@
-//Updated 3:12 Friday
+//Updated 4:50 Friday
 //Changes: (1) Added stuff to request_Struct (2) changed header to parseInput
 //Changes: Finished parser...
 #include <stdio.h>
@@ -43,7 +43,7 @@ sem_t fullSlots;
 //THREAD SETUP
 pthread_t * threads;
 int maxNumThreads;
-
+int numOfThreadsCreated = 0;
 //BUFFER SETUP - for now just FIFO
 #define ANY 0
 #define FIFO 1
@@ -125,6 +125,8 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 /* this is a child web server process, so we can exit on errors */
 void * web(void * input)
 {
+	int threadNum = numOfThreadsCreated++;
+	printf("Debugging: Thread#%d \n", threadNum);
 	while(1){
 	struct request_Struct bufToUse = takeFromBuffer();
 	int fd 			= bufToUse.file_fd;
@@ -275,10 +277,12 @@ void putIntoBuffer(struct request_Struct * input, int schedule)
  */
 struct request_Struct takeFromBuffer()
 {
+	printf("Debugging: Entered takeFromBuffer() \n");
 	//TODO - Manage scheduling 								//See comments from putIntoBuffer
 	sem_wait(&mutex);
+	printf("Debugging: Entered takeFromBuffer() & passed the first mutexs \n");
 	sem_wait(&fullSlots);
-	//printf("\nTake from start\n");
+	printf("Debugging: Entered takeFromBuffer() & passed the mutexs \n");
 	struct request_Struct bufToUse;
 	switch(schedule){
 	case ANY:
@@ -314,6 +318,7 @@ struct request_Struct takeFromBuffer()
 	}
 	sem_post(&emptySlots);
 	sem_post(&mutex);
+	printf("Debugging: Finished takeFromBuff \n");
 	return bufToUse;
 }
 
@@ -410,11 +415,14 @@ int main(int argc, char **argv)
 		if((status = pthread_create(&threads[j], NULL, web, NULL)) != 0)
 			logger(ERROR,"system call","pthread_create",0);
 	}
-	
+	printf("\nDebugging: All threads were setup \n");
 	for(hit=1; ;hit++) {
+		printf("Debugging: Entered for loop \n");
 		length = sizeof(cli_addr);
-		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
+		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0){
+			printf("Debugging: Failed to listen \n");
 			logger(ERROR,"system call","accept",0);	
+			}
 		//------------------//
 		//		Plan		//
 		//------------------//
@@ -427,6 +435,8 @@ int main(int argc, char **argv)
 
 		//PARSE INPUT
 		struct request_Struct newReq = parseInput(socketfd, hit); 
+		printf("Debugging: Passed parseInput \n");
 		putIntoBuffer(&newReq, schedule);
+		printf("Debugging: Passed putIntoBuffer \n");
 	}
 }
