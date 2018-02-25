@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <sys/time.h>
 #define VERSION 23
 #define BUFSIZE 8096
 #define ERROR      42
@@ -42,6 +43,9 @@ struct request_Struct{
 	int fstr;//file extension ex: .txt //0 if html, 1 if picture
 	char * tempBuffer;
 	long ret;
+	struct timeval requestArrivalTimeval;
+	struct timeval requestDispatchTimeval;
+	int arrivalNumber;
 };
 struct request_Struct * buffer_Structs;//the only buffer if there no priority, the html buffer if there is
 struct request_Struct * buffer_StructsPIC;//If there is a priority, this is the picture buffer
@@ -57,9 +61,10 @@ struct request_Struct parseInput(int socketfd, int hit);
 void putIntoBuffer(struct request_Struct * input, int schedule);
 struct request_Struct takeFromBuffer();
 //STATISTICS STUFF
-int X-stat-req-arrival-count	= 0;
-int X-stat-req-dispatch-count	= 0;
-int X-stat-req-complete-count	= 0;
+int xStatReqArrivalCount	= 0;//Number of successful and unsuccessful requests
+int xStatReqDispatchCount	= 0;
+int xStatReqCompleteCount	= 0;
+struct timeval xStatServerStartTime;
 //------------------//
 // End of our code	//
 //------------------//
@@ -110,7 +115,10 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 
 void * web(void * input)
 {
-	//int threadNum = numOfThreadsCreated++;
+	int xStatThreadId 		= numOfThreadsCreated++;
+    int xStatThreadCount	= 0;
+    int xStatThreadHtml		= 0;
+    int xStatThreadImage	= 0;
 	while(1){
 	struct request_Struct bufToUse = takeFromBuffer();
 	int fd 			= bufToUse.file_fd;
@@ -122,6 +130,10 @@ void * web(void * input)
 	long i, len;
 	char * fstr;
 
+	xStatThreadCount++; //Made it past take from Buffer! Count incudes the current.
+    if(bufToUse.fstr) xStatThreadImage++;
+    else xStatThreadHtml++;
+	
 	logger(LOG,"request",buffer,hit);
 	if( strncmp(buffer,"GET ",4) && strncmp(buffer,"get ",4) ) {
 		logger(FORBIDDEN,"Only simple GET operation supported",buffer,fd);
@@ -154,6 +166,17 @@ void * web(void * input)
 	if(( file_fd = open(&buffer[5],O_RDONLY)) == -1) {  /* open the file for reading */
 		logger(NOTFOUND, "failed to open file",&buffer[5],fd);
 	}
+	//STATS
+	xStatReqCompleteCount++;
+	//GET TIME IN RELATION TO START OF THE SERVER
+	struct timeval t0, requestCompleteTimeval;
+	int rc;
+	if((rc= gettimeofday(&t0, NULL)) != 0){
+		printf("gettimeofday() failed, errno = %d\n",errno);
+		exit(1);
+	}
+	timersub(&t0, &xStatServerStartTime, &requestCompleteTimeval);
+	
 	logger(LOG,"SEND",&buffer[5],hit);
 	len = (long)lseek(file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
 	      (void)lseek(file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
@@ -161,11 +184,32 @@ void * web(void * input)
 	logger(LOG,"Header",buffer,hit);
 	dummy = write(fd,buffer,strlen(buffer));
 	
-    /* Send the statistical headers described in the paper, example below
+    //Send the statistical headers described in the paper, example below
     
     (void)sprintf(buffer,"X-stat-req-arrival-count: %d\r\n", xStatReqArrivalCount);
 	dummy = write(fd,buffer,strlen(buffer));
-    */
+	(void)sprintf(buffer,"X-stat-req-arrival-time: %lu.%06lu sec \r\n", bufToUse.requestArrivalTimeval.tv_sec, bufToUse.requestArrivalTimeval.tv_usec);
+    dummy = write(fd,buffer,strlen(buffer));
+    (void)sprintf(buffer,"X-stat-req-dispatch-time: %lu.%06lu sec \r\n", bufToUse.requestDispatchTimeval.tv_sec, bufToUse.requestArrivalTimeval.tv_usec);
+    dummy = write(fd,buffer,strlen(buffer));
+    (void)sprintf(buffer,"X-stat-req-complete-time: %lu.%06lu sec \r\n", requestCompleteTimeval.tv_sec, requestCompleteTimeval.tv_usec);
+    dummy = write(fd,buffer,strlen(buffer));
+    (void)sprintf(buffer,"X-stat-req-dispatch-count: %d\r\n", xStatReqDispatchCount - 1);
+    dummy = write(fd,buffer,strlen(buffer));
+    (void)sprintf(buffer,"X-stat-req-complete-count: %d\r\n", xStatReqCompleteCount - 1);
+    dummy = write(fd,buffer,strlen(buffer));
+    (void)sprintf(buffer,"X-stat-req-age: %d\r\n", xStatReqDispatchCount - bufToUse.arrivalNumber);
+    dummy = write(fd,buffer,strlen(buffer));
+	(void)sprintf(buffer,"X-stat-thread-id: %d\r\n", xStatThreadId);
+    dummy = write(fd,buffer,strlen(buffer));
+    (void)sprintf(buffer,"X-stat-thread-count: %d\r\n", xStatThreadCount);
+    dummy = write(fd,buffer,strlen(buffer));
+    (void)sprintf(buffer,"X-stat-thread-html: %d\r\n", xStatThreadHtml);
+    dummy = write(fd,buffer,strlen(buffer));
+    (void)sprintf(buffer,"X-stat-thread-image: %d\r\n", xStatThreadImage);
+    dummy = write(fd,buffer,strlen(buffer));
+    
+    
     
     /* send file in 8KB block - last block may be smaller */
 	while (	(ret = read(file_fd, buffer, BUFSIZE)) > 0 ) {
@@ -186,6 +230,15 @@ struct request_Struct parseInput(int fd, int hit)
 	struct request_Struct newBuf;
 	newBuf.file_fd 	= fd;
 	newBuf.hit 		= hit;
+	newBuf.hit		= xStatReqArrivalCount++;	//STATS - Count the number of requests regardless of success
+	//GET TIME IN RELATION TO START OF THE SERVER
+	struct timeval t0;
+	int rc;
+	if((rc= gettimeofday(&t0, NULL)) != 0){
+		printf("gettimeofday() failed, errno = %d\n",errno);
+		exit(1);
+	}
+	timersub(&t0, &xStatServerStartTime, &newBuf.requestArrivalTimeval);
 	long ret, len;
 	char * buffer = calloc(BUFSIZE+1, sizeof(char));
 	
@@ -303,11 +356,27 @@ struct request_Struct takeFromBuffer()
 	}
 	sem_post(&emptySlots);
 	sem_post(&mutex);
+	 xStatReqDispatchCount++;	//STAT
+	//GET DISPATCH TIME IN RELATION TO START OF THE SERVER
+	struct timeval t0;
+	int rc;
+	if((rc= gettimeofday(&t0, NULL)) != 0){
+		printf("gettimeofday() failed, errno = %d\n",errno);
+		exit(1);
+	}
+	timersub(&t0, &xStatServerStartTime, &bufToUse.requestDispatchTimeval);
 	return bufToUse;
 }
 
 int main(int argc, char **argv)
 {
+	//SET UP TIME
+	int rc;
+	if((rc = gettimeofday(&xStatServerStartTime, NULL)) != 0){
+		printf("gettimeofday() failed, errno = %d\n",errno);
+		exit(1);
+	}
+	
 	int i, port, listenfd, socketfd, hit;
 	socklen_t length;
 	static struct sockaddr_in cli_addr; /* static = initialised to zeros */
