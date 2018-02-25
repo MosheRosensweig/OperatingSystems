@@ -61,7 +61,7 @@ struct request_Struct parseInput(int socketfd, int hit);
 void putIntoBuffer(struct request_Struct * input, int schedule);
 struct request_Struct takeFromBuffer();
 //STATISTICS STUFF
-int xStatReqArrivalCount	= 0;//Number of successful and unsuccessful requests
+int xStatReqArrivalCount	= -1;//Number of successful and unsuccessful requests
 int xStatReqDispatchCount	= 0;
 int xStatReqCompleteCount	= 0;
 struct timeval xStatServerStartTime;
@@ -198,7 +198,7 @@ void * web(void * input)
     dummy = write(fd,buffer,strlen(buffer));
     (void)sprintf(buffer,"X-stat-req-complete-count: %d\r\n", xStatReqCompleteCount - 1);
     dummy = write(fd,buffer,strlen(buffer));
-    (void)sprintf(buffer,"X-stat-req-age: %d\r\n", xStatReqDispatchCount - bufToUse.arrivalNumber);
+    (void)sprintf(buffer,"X-stat-req-age: %d\r\n", xStatReqDispatchCount - 1 - bufToUse.arrivalNumber);
     dummy = write(fd,buffer,strlen(buffer));
 	(void)sprintf(buffer,"X-stat-thread-id: %d\r\n", xStatThreadId);
     dummy = write(fd,buffer,strlen(buffer));
@@ -228,9 +228,10 @@ void * web(void * input)
 struct request_Struct parseInput(int fd, int hit)
 {
 	struct request_Struct newBuf;
-	newBuf.file_fd 	= fd;
-	newBuf.hit 		= hit;
-	newBuf.hit		= xStatReqArrivalCount++;	//STATS - Count the number of requests regardless of success
+	newBuf.file_fd 			= fd;
+	newBuf.hit 				= hit;
+	newBuf.arrivalNumber	= xStatReqArrivalCount++;	//STATS - Count the number of requests regardless of success
+	newBuf.fstr				= 0;
 	//GET TIME IN RELATION TO START OF THE SERVER
 	struct timeval t0;
 	int rc;
@@ -278,11 +279,14 @@ struct request_Struct parseInput(int fd, int hit)
 	for(i=0;extensions[i].ext != 0;i++) {
 		len = strlen(extensions[i].ext);
 		if(!strncmp(&smallBuffer[buflen-(len + 9)], extensions[i].ext, len)) {
-			newBuf.fstr = (i <= 4) ? 1 : 0;
+			if(i <= 7) newBuf.fstr = 1;
+			//else newBuf.fstr = 0;
 			break;
 		}
 	}
-    
+	//debug
+    //printf("newBuf.fstr = %d, hit number = %d, term is \"%s\"\n",newBuf.fstr, newBuf.hit, smallBuffer);
+    //memset(smallBuffer, 0, smallBuffsize);
 	return newBuf;
 }
 
@@ -402,7 +406,7 @@ int main(int argc, char **argv)
 		return 0; /* parent returns OK to shell */
 	(void)signal(SIGCHLD, SIG_IGN); /* ignore child death */
 	(void)signal(SIGHUP, SIG_IGN); /* ignore terminal hangups */
-	for(i=2;i<32;i++)//TODO set this back to 0
+	for(i=0;i<32;i++)//TODO set this back to 0
 		(void)close(i);		/* close open files */
 	(void)setpgrp();		/* break away from process group */
 	logger(LOG,"nweb starting",argv[1],getpid());
