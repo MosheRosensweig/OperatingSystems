@@ -113,19 +113,11 @@ void * getThread(void * input){
         
         pthread_barrier_wait(&myBarrier);    
     
-        //TODO Remove this debug thread printout stuff
-        char threadName[100];
-        sprintf(threadName, " --Thread #%p-- ", (void *) pthread_self());
-    
-        int j = 0;
-    
         char buf[BUF_SIZE];
         while (recv(clientfd, buf, BUF_SIZE, 0) > 0) {
-        if (j++ == 1) fputs(threadName, stdout);
-        fputs(buf, stdout);
-        fflush(stdout);
-    
-        memset(buf, 0, BUF_SIZE);
+            fputs(buf, stdout);
+            fflush(stdout);
+            memset(buf, 0, BUF_SIZE);
         }
     
         close(clientfd);
