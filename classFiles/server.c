@@ -1,4 +1,4 @@
-//Updated 3:05 - This is to test the sever on my own
+//Updated Motzash
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -19,44 +19,27 @@
 #define FORBIDDEN 403
 #define NOTFOUND  404
 
-//---------------
-//  Micah Code
-// ------------------
 
 sem_t mutex;
 sem_t emptySlots;
 sem_t fullSlots;
 
-//NOTE: I changed the code to semaphore version and deleted (I think)
-//all obsolete code. I did not delete obsolete comments because that's
-//a bigger job. Primary edits were in the buffer methods but the clean up
-//was everywhere. The buffer methods currently won't work because they need
-//to implement scanning for slots.
-
-
-//-------------------------------------//
-//			Moshe Written Code	  	   //
-//-------------------------------------//
-
-//THREAD SETUP
 pthread_t * threads;
 int maxNumThreads;
+int numOfThreadsCreated = 0;
 
-//BUFFER SETUP - for now just FIFO
 #define ANY 0
 #define FIFO 1
 #define HPIC 2
 #define HPHC 3
 int schedule;
-// The request struct now only needs to hold the fd and the hit number
-// So when the child thread takes it out it can get access to that info
-// I'm also storing the file - type even though we only need to know
-// that in order to parse it, we won't need it afterwards, but for now
-// why not
+
 struct request_Struct{
 	int file_fd;
 	int hit;
 	int fstr;//file extension ex: .txt //0 if html, 1 if picture
+	char * tempBuffer;
+	long ret;
 };
 struct request_Struct * buffer_Structs;//the only buffer if there no priority, the html buffer if there is
 struct request_Struct * buffer_StructsPIC;//If there is a priority, this is the picture buffer
@@ -68,11 +51,10 @@ int numOfReqsInBuf 	  = 0; //These two are only needed to speed up HPIC/HPHC, bu
 int numOfReqsInPicBuf = 0; //semaphore is enough. These are basically queue.size() in java terms
 int buffers;//number of buffers
 
-//TODO implement these
 struct request_Struct parseInput(int socketfd, int hit);
-void putIntoBuffer(void * input, int schedule);
-struct request_Struct takeFromBuffer(); //TODO this needs to be done right
-//-------------------------------------//
+void putIntoBuffer(struct request_Struct * input, int schedule);
+struct request_Struct takeFromBuffer();
+
 struct {
 	char *ext;
 	char *filetype;
@@ -118,29 +100,20 @@ void logger(int type, char *s1, char *s2, int socket_fd)
 	if(type == ERROR || type == NOTFOUND || type == FORBIDDEN) exit(3);
 }
 
-/* this is a child web server process, so we can exit on errors */
 void * web(void * input)
 {
+	//int threadNum = numOfThreadsCreated++;
 	while(1){
 	struct request_Struct bufToUse = takeFromBuffer();
-	int fd  = bufToUse.file_fd;
-	int hit = bufToUse.hit;
+	int fd 			= bufToUse.file_fd;
+	int hit 		= bufToUse.hit;
+	char * buffer 	= bufToUse.tempBuffer;
+	long ret 		= bufToUse.ret;
 	
 	int j, file_fd, buflen;
-	long i, ret, len;
+	long i, len;
 	char * fstr;
-	static char buffer[BUFSIZE+1]; /* static so zero filled */
 
-	ret =read(fd,buffer,BUFSIZE); 	/* read Web request in one go */
-	if(ret == 0 || ret == -1) {	/* read failure stop now */
-		logger(FORBIDDEN,"failed to read browser request","",fd);
-	}
-	if(ret > 0 && ret < BUFSIZE)	/* return code is valid chars */
-		buffer[ret]=0;		/* terminate the buffer */
-	else buffer[0]=0;
-	for(i=0;i<ret;i++)	/* remove CF and LF characters */
-		if(buffer[i] == '\r' || buffer[i] == '\n')
-			buffer[i]='*';
 	logger(LOG,"request",buffer,hit);
 	if( strncmp(buffer,"GET ",4) && strncmp(buffer,"get ",4) ) {
 		logger(FORBIDDEN,"Only simple GET operation supported",buffer,fd);
@@ -192,62 +165,63 @@ void * web(void * input)
 	}
 	sleep(1);	/* allow socket to drain before signalling the socket is closed */
 	close(fd);
-	//TODO - implement semaphore version of the waiting... or my old version works too
+	free(buffer); //TODO verify that is is needed.
 	}//end of while loop
 	return NULL;
 }
-
-//--------------------------//
-//----- Moshe's Methods ----//
-//--------------------------//
 
 /*
  * Find the file type and return 
  */
 struct request_Struct parseInput(int fd, int hit)
 {
-	//printf("\nParse Begin!\n"); fflush(stdout);
 	struct request_Struct newBuf;
-	newBuf.file_fd = fd;
-	newBuf.hit = hit;
+	newBuf.file_fd 	= fd;
+	newBuf.hit 		= hit;
+	long ret, len;
+	char * buffer = calloc(BUFSIZE+1, sizeof(char));
 	
-	//TODO fix - Micah's code doesn't work
-	newBuf.fstr = 0;
-	
-	/*
-	static char buffer[BUFSIZE]; //could be smaller.
-	int ret, buflen, len, i, j;
-	j = 0;
-	char* fstr;
-	
-	while ((ret = read(fd, buffer, 1))) {
-	    if (!strncmp(buffer + (++j), "\n", 1)) {
-	        break;
-	    }
-	}
-	
-	if(ret == 0 || ret == -1) {	//read failure stop now 
+	ret =read(fd,buffer,BUFSIZE); 		// read Web request in one go
+	if(ret == 0 || ret == -1) {			// read failure stop now
 		logger(FORBIDDEN,"failed to read browser request","",fd);
 	}
+	if(ret > 0 && ret < BUFSIZE)		// return code is valid chars
+		buffer[ret]=0;					// terminate the buffer
+	else buffer[0]=0;
 	
-	buflen=strlen(buffer);
-	fstr = (char *)0;
+	newBuf.tempBuffer = buffer;
+	newBuf.ret 		  = ret;
+	
+	int i;
+	int smallBuffsize = 0;
+	for(i=0;i<ret;i++)
+		if(buffer[i] == '\r' || buffer[i] == '\n') 
+			break;
+		else smallBuffsize++;
+		
+	char smallBuffer[smallBuffsize];
+	
+	int spaceCounter = 0;
+	
+	for(int k = 0; k < smallBuffsize; k++) { //get the first line of the request
+        if (!strcmp(&buffer[k], " ")) {
+            if(++spaceCounter == 2) {
+                break;
+            }
+        }
+	smallBuffer[k] = buffer[k];
+    }
+        
+	int buflen=strlen(smallBuffer);
+	
 	for(i=0;extensions[i].ext != 0;i++) {
 		len = strlen(extensions[i].ext);
-		if( !strncmp(&buffer[buflen-len], extensions[i].ext, len)) {
-			fstr =extensions[i].filetype;
-			if (i <= 4) {
-			    newBuf.fstr = 1; //It's an image.
-			}
-			else {
-			    newBuf.fstr = 0;
-			}
+		if(!strncmp(&smallBuffer[buflen-(len + 9)], extensions[i].ext, len)) {
+			newBuf.fstr = (i <= 4) ? 1 : 0;
 			break;
 		}
 	}
-	if(fstr == 0) logger(FORBIDDEN,"file extension type not supported",buffer,fd);
-    */
-    //printf("\nParse End!\n"); fflush(stdout);
+    
 	return newBuf;
 }
 
@@ -258,16 +232,11 @@ struct request_Struct parseInput(int fd, int hit)
  * How do I know which is the next available buffer? See code, it uses two pointers...
  * The takeFromBuff will never pass the putInBuff because of the semaphores
  */
-void putIntoBuffer(void * input, int schedule)
+void putIntoBuffer(struct request_Struct * input, int schedule)
 {
-	//printf("Beginning of putInBuff number 0\n");
-	//TODO - Manage schedualing
-	struct request_Struct *newBuf = input;
-	//sem_wait(&mutex); 								//Check if can acess critical reigion.
-	//printf("Beginning of putInBuff number 1\n");
+	//TODO - Manage scheduling
+	struct request_Struct req = *input; 			//deference the request
 	sem_wait(&emptySlots); 							//See if can lower the number of empty spots. (i.e. not equal 0)
-	//printf("Beginning of putInBuff number 2\n");
-	struct request_Struct req = *newBuf; 			//deference the request
 	if(schedule == ANY || schedule == FIFO || req.fstr == 0){
 		//If it's non-priority or it's HPIC/HPHC, but it's an html
 		buffer_Structs[putInBuff%buffers] = req;
@@ -280,7 +249,6 @@ void putIntoBuffer(void * input, int schedule)
 		numOfReqsInPicBuf++;
 	}
 	sem_post(&fullSlots); 							//Raise the number of full slots.
-	//sem_post(&mutex);	 							//Indicate that someone else can get it.
 }		
 
 /*
@@ -290,10 +258,8 @@ void putIntoBuffer(void * input, int schedule)
  */
 struct request_Struct takeFromBuffer()
 {
-	//TODO - Manage scheduling 								//See comments from putIntoBuffer
 	sem_wait(&mutex);
 	sem_wait(&fullSlots);
-	//printf("\nTake from start\n");
 	struct request_Struct bufToUse;
 	switch(schedule){
 	case ANY:
@@ -372,12 +338,8 @@ int main(int argc, char **argv)
 	//------------------------------------------//
 	//	 Start: Moshe's Edits to input scanning	//
 	//------------------------------------------//
-	//				argv[0]	  argv[1]	argv[2]	  argv[3]	argv[4]		argv[5]
-	// Old Version: ./server [portnum] [folder] &
-	// New Version: ./server [portnum] [folder] [threads] [buffers] [schedalg] &
-	//THREAD SETUP
-	
 
+	//THREAD SETUP
 	maxNumThreads = atoi(argv[3]);
 	if(maxNumThreads < 1){ 
 		printf("Invalid number of threads");
@@ -400,10 +362,9 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 	
-	//See older code for a diff. way to do buffers
 	buffer_Structs 	  = malloc(sizeof(struct request_Struct) * buffers);
 	buffer_StructsPIC = malloc(sizeof(struct request_Struct) * buffers);
-	//MICAH ADDED CODE
+
 	sem_init(&mutex, 0, 1);
 	sem_init(&emptySlots, 0, buffers);
 	sem_init(&fullSlots, 0, 0);
@@ -425,38 +386,14 @@ int main(int argc, char **argv)
 		if((status = pthread_create(&threads[j], NULL, web, NULL)) != 0)
 			logger(ERROR,"system call","pthread_create",0);
 	}
-	
 	for(hit=1; ;hit++) {
 		length = sizeof(cli_addr);
-		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0)
+		if((socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length)) < 0){
 			logger(ERROR,"system call","accept",0);	
-		//------------------//
-		//		Plan		//
-		//------------------//
-		// 1] Start all the threads - above
-		// 2] Take the input, and parse it and put it into the buffer_Structs based on scheduling
-		// 3] Check if there are available threads, if:
-		//		[a] yes - run that thread with the next available request
-		//		[b] no  - yield until there is
-		// 4] Start again
-
-		//PARSE INPUT
-		struct request_Struct newReq = parseInput(socketfd, hit); //TODO make this work!
-		putIntoBuffer((void *)&newReq, schedule);
-		//printf("putIntoBuffer Passed!\n");
-		//START WORKER CHILD THREAD
-		//sleep(2); //TODO Why the sleep, I know it's a question. 
-		/*	
-		if((pid = fork()) < 0) {
-			logger(ERROR,"system call","fork",0);
-		}
-		else {
-			if(pid == 0) { 	// child 
-				(void)close(listenfd);
-				web(socketfd,hit); // never returns 
-			} else { 	// parent 
-				(void)close(socketfd);
 			}
-		}*/
+		struct request_Struct newReq = parseInput(socketfd, hit); 
+		//(void)close(listenfd);
+		//(void)close(socketfd);
+		putIntoBuffer(&newReq, schedule);
 	}
 }
