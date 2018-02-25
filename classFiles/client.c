@@ -111,12 +111,9 @@ void * getThread(void * input){
     
         if (FIFO) sem_post(&mutex);
         
-        pthread_barrier_wait(&myBarrier);
-        //printf("Hii!\n");
+        pthread_barrier_wait(&myBarrier);    
     
-        //printf("\n\nThread #%p\n\n", (void *) pthread_self());
-    
-    
+        //TODO Remove this debug thread printout stuff
         char threadName[100];
         sprintf(threadName, " --Thread #%p-- ", (void *) pthread_self());
     

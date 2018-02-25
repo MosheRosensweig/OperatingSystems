@@ -191,7 +191,7 @@ struct request_Struct parseInput(int fd, int hit)
 	
 	newBuf.tempBuffer = buffer;
 	newBuf.ret 		  = ret;
-	
+	//TODO Clean this whole method up.
 	int i;
 	int smallBuffsize = 0;
 	for(i=0;i<ret;i++)
@@ -392,7 +392,7 @@ int main(int argc, char **argv)
 			logger(ERROR,"system call","accept",0);	
 			}
 		struct request_Struct newReq = parseInput(socketfd, hit); 
-		//(void)close(listenfd);
+		//(void)close(listenfd); //TODO Verify these closures.
 		//(void)close(socketfd);
 		putIntoBuffer(&newReq, schedule);
 	}
