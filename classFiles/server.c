@@ -19,11 +19,13 @@
 #define FORBIDDEN 403
 #define NOTFOUND  404
 
-
+//--------------//
+//	Our Code	//
+//--------------//
 sem_t mutex;
 sem_t emptySlots;
 sem_t fullSlots;
-
+//THREAD STUFF
 pthread_t * threads;
 int maxNumThreads;
 int numOfThreadsCreated = 0;
@@ -33,7 +35,7 @@ int numOfThreadsCreated = 0;
 #define HPIC 2
 #define HPHC 3
 int schedule;
-
+//BUFFER STUFF
 struct request_Struct{
 	int file_fd;
 	int hit;
@@ -54,7 +56,13 @@ int buffers;//number of buffers
 struct request_Struct parseInput(int socketfd, int hit);
 void putIntoBuffer(struct request_Struct * input, int schedule);
 struct request_Struct takeFromBuffer();
-
+//STATISTICS STUFF
+int X-stat-req-arrival-count	= 0;
+int X-stat-req-dispatch-count	= 0;
+int X-stat-req-complete-count	= 0;
+//------------------//
+// End of our code	//
+//------------------//
 struct {
 	char *ext;
 	char *filetype;
