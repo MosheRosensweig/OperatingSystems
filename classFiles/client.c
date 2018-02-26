@@ -150,7 +150,6 @@ int main(int argc, char **argv) {
     args.host = argv[1];
     args.portnum = argv[2];
     args.files[0] = argv[5];
-    printf("%s", args.files[0]);
     args.hasSecondFile = 0; //Probs not needed.
     if (argc > 6) {
         args.hasSecondFile = 1;
