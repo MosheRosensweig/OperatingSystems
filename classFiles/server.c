@@ -340,14 +340,14 @@ struct request_Struct takeFromBuffer()
 			numOfReqsInBuf--;							
 		}
 		else{
-			bufToUse = buffer_Structs[takeFromPicBuff%buffers];
+			bufToUse = buffer_StructsPIC[takeFromPicBuff%buffers];
 			takeFromPicBuff++; 							
 			numOfReqsInPicBuf--;
 		}
 		break;
 	case HPIC:										//pictures are prioritized
 		if(numOfReqsInPicBuf > 0){
-			bufToUse = buffer_Structs[takeFromPicBuff%buffers];
+			bufToUse = buffer_StructsPIC[takeFromPicBuff%buffers];
 			takeFromPicBuff++; 							
 			numOfReqsInPicBuf--;										
 		}
