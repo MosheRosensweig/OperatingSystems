@@ -1,4 +1,4 @@
-//Updated Monday	
+//Updated Monday Night
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -180,7 +180,7 @@ void * web(void * input)
 	logger(LOG,"SEND",&buffer[5],hit);
 	len = (long)lseek(file_fd, (off_t)0, SEEK_END); /* lseek to the file end to find the length */
 	      (void)lseek(file_fd, (off_t)0, SEEK_SET); /* lseek back to the file start ready for reading */
-          (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n\n", VERSION, len, fstr); /* Header + a blank line */
+          (void)sprintf(buffer,"HTTP/1.1 200 OK\nServer: nweb/%d.0\nContent-Length: %ld\nConnection: close\nContent-Type: %s\n", VERSION, len, fstr); /* Header + a blank line */
 	logger(LOG,"Header",buffer,hit);
 	dummy = write(fd,buffer,strlen(buffer));
 	
@@ -206,7 +206,7 @@ void * web(void * input)
     dummy = write(fd,buffer,strlen(buffer));
     (void)sprintf(buffer,"X-stat-thread-html: %d\r\n", xStatThreadHtml);
     dummy = write(fd,buffer,strlen(buffer));
-    (void)sprintf(buffer,"X-stat-thread-image: %d\r\n", xStatThreadImage);
+    (void)sprintf(buffer,"X-stat-thread-image: %d\r\n\n", xStatThreadImage);
     dummy = write(fd,buffer,strlen(buffer));
     
     
